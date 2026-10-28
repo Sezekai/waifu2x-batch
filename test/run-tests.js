@@ -6,6 +6,7 @@ const fs = require('fs');
 const P = require('../lib/presets');
 const { Store } = require('../lib/store');
 const { groupByDir } = require('../lib/runner');
+const { copyTree } = require('../lib/fsutil');
 
 // Website defaults: Artwork, Medium noise, 2x
 assert.deepStrictEqual(P.buildArgs({ style: 'artwork', noise: 'medium', scale: '2x' }, 'L.txt', 'OUT'), [
@@ -45,5 +46,23 @@ store.remove(store.forSource(src)[0].id);
 assert.strictEqual(store.forSource(src).length, 0);
 fs.rmSync(tmp, { force: true });
 fs.rmSync(out, { force: true });
+
+// copyTree: copies files, skips the skipped folder, reports bytes
+{
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'w2x-copy-'));
+  const src = path.join(base, 'src');
+  const dst = path.join(base, 'dst');
+  fs.mkdirSync(path.join(src, 'engine', 'python'), { recursive: true });
+  fs.mkdirSync(path.join(src, 'staging'), { recursive: true });
+  fs.writeFileSync(path.join(src, 'engine', 'python', 'python.exe'), 'abc');
+  fs.writeFileSync(path.join(src, 'settings.json'), '{}');
+  fs.writeFileSync(path.join(src, 'staging', 'junk.tmp'), 'zzz');
+  const r = copyTree(src, dst, null, (rel) => rel.split(path.sep)[0] === 'staging');
+  assert.strictEqual(r.files, 2);
+  assert.strictEqual(r.bytes, 5);
+  assert.ok(fs.existsSync(path.join(dst, 'engine', 'python', 'python.exe')));
+  assert.ok(!fs.existsSync(path.join(dst, 'staging')));
+  fs.rmSync(base, { recursive: true, force: true });
+}
 
 console.log('All tests passed.');

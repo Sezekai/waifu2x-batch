@@ -19,7 +19,8 @@ contextBridge.exposeInMainWorld('api', {
   getSettings: () => ipcRenderer.invoke('settings:get'),
   setSettings: (s) => ipcRenderer.invoke('settings:set', s),
   installEngine: () => ipcRenderer.invoke('engine:install'),
+  onEngineProgress: (cb) => on('engine:progress', cb),
+  moveDataFolder: () => ipcRenderer.invoke('data:move'),
   checkSetup: () => ipcRenderer.invoke('setup:check'),
   resetAppData: () => ipcRenderer.invoke('app:reset'),
-  onSetupLog: (cb) => on('setup:log', cb),
 });

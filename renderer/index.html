@@ -91,7 +91,9 @@
         <button id="installEngine" class="primary">Install engine</button>
         <button id="checkSetup">Check engine</button>
       </div>
-      <pre id="setupLog" class="log" style="height:240px"></pre>
+      <div class="progress"><div id="engBar"></div></div>
+      <p id="engText" class="hint"></p>
+      <pre id="setupLog" class="log" style="height:200px"></pre>
 
       <details>
         <summary class="hint">Advanced: use your own Python and nunif</summary>
@@ -110,7 +112,9 @@
       <h3>App data</h3>
       <p class="hint">Stored outside the exe, so a new version keeps your history. Your images are never touched.</p>
       <p id="dataDir" class="hint"></p>
+      <p id="dataWarn" class="hint" style="color:#ff9f43"></p>
       <div class="row">
+        <button id="moveData">Move app data…</button>
         <button id="resetApp">Reset app data</button>
         <span class="hint">Clears the version list and settings. Engine and images stay.</span>
       </div>

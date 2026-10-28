@@ -583,17 +583,42 @@
       alert(e.message);
     }
   };
+  $('#moveData').onclick = async () => {
+    if (!confirm('Move the app data (engine, settings and version list) to another folder? The app will close; reopen it afterwards. Your images are not moved.')) return;
+    try {
+      const r = await api.moveDataFolder();
+      if (r.ok) {
+        $('#engText').textContent = `Moved to ${r.target}. The app is closing. Reopen it.`;
+        alert(`Moved to:\n${r.target}\n\nThe app will close now. Open it again.`);
+      }
+    } catch (e) {
+      alert(e.message);
+    }
+  };
+
   async function refreshEngineStatus() {
     const info = await api.appInfo();
     $('#dataDir').textContent = `Data folder: ${info.dataDir}`;
+    $('#dataWarn').textContent = info.missingDataDir
+      ? `The data folder ${info.missingDataDir} is not available (is the external drive connected?). Using the default folder for now.`
+      : '';
     $('#engineStatus').textContent = info.engineInstalled
       ? 'Installed. Ready to upscale.'
       : 'Not installed yet. Click "Install engine" once to set it up.';
   }
-  api.onSetupLog((chunk) => {
-    const log = $('#setupLog');
-    log.textContent += chunk;
-    log.scrollTop = log.scrollHeight;
+  // Progress from the engine install and the data move: { log?, text?, pct? }
+  api.onEngineProgress((ev) => {
+    if (ev.log) {
+      const log = $('#setupLog');
+      log.textContent += ev.log;
+      log.scrollTop = log.scrollHeight;
+    }
+    if (ev.text !== undefined) $('#engText').textContent = ev.text;
+    if (ev.pct !== undefined) {
+      const bar = $('#engBar');
+      bar.style.width = ev.pct === null ? '100%' : `${Math.min(100, Math.round(ev.pct))}%`;
+      bar.style.opacity = ev.pct === null ? '0.35' : '1';
+    }
   });
 
   // ---------- init ----------
