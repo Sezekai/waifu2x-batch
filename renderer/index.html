@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Waifu2x Batch</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <nav class="tabs">
+    <button class="tab-btn active" data-tab="batch">Batch</button>
+    <button class="tab-btn" data-tab="viewer">Viewer</button>
+    <button class="tab-btn" data-tab="setup">Setup</button>
+  </nav>
+
+  <!-- BATCH -->
+  <section id="tab-batch" class="tab active">
+    <div class="bar">
+      <button id="pickFolder">Choose folder…</button>
+      <label class="inline"><input type="checkbox" id="recursive"> include subfolders</label>
+      <span id="folderLabel" class="muted">No folder selected</span>
+    </div>
+    <div class="cols">
+      <div class="listwrap">
+        <div class="listhead">
+          <label class="inline"><input type="checkbox" id="selAll"> Select all</label>
+          <span id="batchCount" class="muted"></span>
+        </div>
+        <ul id="batchList" class="imglist"></ul>
+      </div>
+      <aside class="panel">
+        <h3>Settings</h3>
+        <div id="batchForm"></div>
+      </aside>
+    </div>
+    <div class="runbar">
+      <button id="runBtn" class="primary">Upscale selected</button>
+      <button id="cancelBtn" disabled>Cancel</button>
+      <span class="hint">Already-done images with these settings are skipped. Nothing is overwritten.</span>
+    </div>
+    <div class="progress"><div id="progBar"></div></div>
+    <pre id="jobLog" class="log"></pre>
+  </section>
+
+  <!-- VIEWER -->
+  <section id="tab-viewer" class="tab">
+    <div class="cols3">
+      <aside class="sources">
+        <div class="listhead"><span>Images</span><button id="vPick">Folder…</button></div>
+        <ul id="srcList" class="imglist"></ul>
+      </aside>
+      <main class="vmain">
+        <div class="bar">
+          <div class="seg" id="modes">
+            <button data-mode="hold" class="active">Hold to compare</button>
+            <button data-mode="slider">Slider</button>
+            <button data-mode="side">Side by side</button>
+          </div>
+          <button id="zOut">−</button>
+          <span id="zoomLabel" class="muted">100%</span>
+          <button id="zIn">+</button>
+          <button id="zFit">Fit</button>
+          <button id="z1">100%</button>
+          <span id="vStatus" class="muted"></span>
+        </div>
+        <div id="stage" class="stage">
+          <div id="panes"></div>
+          <div id="holdBadge" class="holdbadge">ORIGINAL</div>
+        </div>
+        <div id="vHint" class="hint"></div>
+      </main>
+      <aside class="panel">
+        <h3>Versions</h3>
+        <ul id="verList" class="verlist"></ul>
+        <h3>Run again on this image</h3>
+        <div id="viewerForm"></div>
+        <button id="rerunBtn" class="primary">Upscale this image</button>
+      </aside>
+    </div>
+  </section>
+
+  <!-- SETUP -->
+  <section id="tab-setup" class="tab">
+    <div class="panel wide">
+      <h3>Engine</h3>
+      <p id="engineStatus" class="hint">Checking…</p>
+      <p class="hint">
+        The engine is Python, PyTorch and nunif's waifu2x models. It installs into the app's data folder
+        and is about 3 GB, mostly PyTorch. You only need to do this once. If it stops partway, click the button again.
+      </p>
+      <div class="row">
+        <button id="installEngine" class="primary">Install engine</button>
+        <button id="checkSetup">Check engine</button>
+      </div>
+      <pre id="setupLog" class="log" style="height:240px"></pre>
+
+      <details>
+        <summary class="hint">Advanced: use your own Python and nunif</summary>
+        <label>Python command or full path to python.exe
+          <input type="text" id="pyPath" placeholder="python">
+        </label>
+        <label>nunif folder (repo root)
+          <div class="row">
+            <input type="text" id="nunifPath" placeholder="C:\Tools\nunif">
+            <button id="pickNunif">Browse…</button>
+          </div>
+        </label>
+        <div class="row"><button id="saveSetup">Save</button></div>
+      </details>
+
+      <h3>App data</h3>
+      <p class="hint">Stored outside the exe, so a new version keeps your history. Your images are never touched.</p>
+      <p id="dataDir" class="hint"></p>
+      <div class="row">
+        <button id="resetApp">Reset app data</button>
+        <span class="hint">Clears the version list and settings. Engine and images stay.</span>
+      </div>
+    </div>
+  </section>
+
+  <script src="../lib/presets.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,34 @@
+{
+  "name": "waifu2x-batch-upscaler",
+  "version": "0.2.0",
+  "description": "Batch upscaler and comparison viewer for nunif's waifu2x",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "test": "node test/run-tests.js",
+    "dist": "electron-builder --win portable"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "local.waifu2x.batchupscaler",
+    "productName": "Waifu2x Batch",
+    "artifactName": "Waifu2x-Batch-${version}.exe",
+    "files": [
+      "main.js",
+      "preload.js",
+      "lib/**/*",
+      "renderer/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": ["portable"]
+    },
+    "directories": {
+      "output": "dist"
+    }
+  }
+}
