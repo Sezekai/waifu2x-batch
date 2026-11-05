@@ -1,6 +1,6 @@
 {
   "name": "waifu2x-batch-upscaler",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Batch upscaler and comparison viewer for nunif's waifu2x",
   "main": "main.js",
   "private": true,
@@ -25,7 +25,9 @@
       "package.json"
     ],
     "win": {
-      "target": ["portable"]
+      "target": [
+        "portable"
+      ]
     },
     "directories": {
       "output": "dist"
