@@ -8,6 +8,7 @@ const { Store } = require('./lib/store');
 const { listImages, pngSize, copyTree } = require('./lib/fsutil');
 const { runJob } = require('./lib/runner');
 const { installEngine, fmtBytes } = require('./lib/engine');
+const { pyArgs, cleanEnv } = require('./lib/pyenv');
 
 // The app's data folder can be moved (e.g. to an external drive). A small pointer file in the
 // default folder records where it is. This must run before the app is ready.
@@ -39,6 +40,7 @@ const CHECK_CODE = [
   'print("python", sys.version.split()[0])',
   'import torch',
   'print("torch", torch.__version__, "| CUDA available:", torch.cuda.is_available())',
+  'print("GPU:", torch.cuda.get_device_name(0) if torch.cuda.is_available() else "none (CPU only)")',
   'import waifu2x.cli',
   'print("waifu2x import: OK")',
   'print("pretrained models folder found:", os.path.isdir("waifu2x/pretrained_models"))',
@@ -68,10 +70,10 @@ function runPython(args) {
     let out = '';
     let proc;
     try {
-      proc = spawn(cfg.python, ['-u', ...args], {
+      proc = spawn(cfg.python, pyArgs(args), {
         cwd: cfg.nunifPath,
         windowsHide: true,
-        env: { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' },
+        env: cleanEnv(),
       });
     } catch (e) {
       return resolve({ code: -1, output: e.message });
@@ -112,6 +114,14 @@ function writeLog(text) {
 }
 
 // Only true once the whole install has finished. python.exe alone is not enough, since PyTorch comes later.
+function engineInfo() {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(dataDir, 'engine', 'ready.json'), 'utf8'));
+  } catch (_) {
+    return null;
+  }
+}
+
 function engineInstalled() {
   return (
     fs.existsSync(path.join(dataDir, 'engine', 'ready.json')) &&
@@ -185,6 +195,7 @@ function registerIpc() {
   ipcMain.handle('app:info', () => ({
     dataDir,
     engineInstalled: engineInstalled(),
+    engine: engineInfo(),
     missingDataDir,
     logFile: engineLogFile(),
   }));
@@ -254,12 +265,26 @@ function registerIpc() {
       send('task:progress', { task: 'engine', ...ev });
     };
     writeLog(`\n===== Install started ${new Date().toLocaleString()} =====\n`);
+    // Not ready until this install finishes, even if an earlier one did.
+    fs.rmSync(path.join(dataDir, 'engine', 'ready.json'), { force: true });
     try {
       const r = await installEngine(dataDir, report);
       writeSettings({ ...readSettings(), python: r.python, nunifPath: r.nunifPath });
-      fs.writeFileSync(path.join(dataDir, 'engine', 'ready.json'), JSON.stringify({ installedAt: new Date().toISOString() }));
+      fs.writeFileSync(
+        path.join(dataDir, 'engine', 'ready.json'),
+        JSON.stringify({ installedAt: new Date().toISOString(), cuda: r.cuda, gpu: r.gpu, torch: r.torch }, null, 2)
+      );
       writeLog('\nEngine installed and ready.\n');
-      report({ label: 'Engine ready', done: 1, total: 1, unit: 'items', state: 'done', message: 'Engine installed and ready.' });
+      report({
+        label: 'Engine ready',
+        done: 1,
+        total: 1,
+        unit: 'items',
+        state: 'done',
+        message: r.cuda
+          ? `Engine installed and tested. Using ${r.gpu}.`
+          : 'Engine installed and tested, but the GPU is not available, so upscaling will use the CPU (slow). Updating the NVIDIA driver usually fixes this.',
+      });
       return { ok: true };
     } catch (e) {
       writeLog(`\nInstall stopped: ${e.message}\n`);

@@ -5,12 +5,15 @@ const path = require('path');
 const fs = require('fs');
 const P = require('../lib/presets');
 const { Store } = require('../lib/store');
-const { groupByDir } = require('../lib/runner');
+const { groupByDir, planRuns, listFileText } = require('../lib/runner');
+const E = require('../lib/engine');
+const { pyArgs, cleanEnv, lineSplitter } = require('../lib/pyenv');
+const { execFileSync } = require('child_process');
 const { copyTree } = require('../lib/fsutil');
 
-// Website defaults: Artwork, Medium noise, 2x
+// Website defaults: Artwork, Medium noise, 2x. Medium is level 1 on waifu2x.net (nunif web/server.py).
 assert.deepStrictEqual(P.buildArgs({ style: 'artwork', noise: 'medium', scale: '2x' }, 'L.txt', 'OUT'), [
-  '-m', 'noise_scale', '-n', '2', '--style', 'art', '-f', 'png', '--tile-size', '256', '-i', 'L.txt', '-o', 'OUT',
+  '-m', 'noise_scale', '-n', '1', '--style', 'art', '-f', 'png', '--tile-size', '256', '-i', 'L.txt', '-o', 'OUT',
 ]);
 
 // No noise reduction, 4x, photo style: no -n flag
@@ -20,7 +23,7 @@ assert.deepStrictEqual(P.buildArgs({ noise: 'none', scale: '4x', style: 'photo' 
 
 // Noise only, with TTA
 assert.deepStrictEqual(P.buildArgs({ noise: 'high', scale: 'none', tta: true }, 'L', 'O'), [
-  '-m', 'noise', '-n', '3', '--style', 'art', '-f', 'png', '--tile-size', '256', '--tta', '-i', 'L', '-o', 'O',
+  '-m', 'noise', '-n', '2', '--style', 'art', '-f', 'png', '--tile-size', '256', '--tta', '-i', 'L', '-o', 'O',
 ]);
 
 assert.throws(() => P.buildArgs({ noise: 'none', scale: 'none' }, 'L', 'O'));
@@ -28,6 +31,93 @@ assert.throws(() => P.buildArgs({ style: 'nope' }, 'L', 'O'));
 
 assert.strictEqual(P.tagFor({ style: 'artwork', noise: 'medium', scale: '2x' }), 'artwork_medium_2x');
 assert.strictEqual(P.tagFor({ style: 'photo', noise: 'none', scale: '4x', tta: true }), 'photo_none_4x_tta');
+
+// Noise levels match the website: Low 0, Medium 1, High 2, Highest 3
+assert.deepStrictEqual(['low', 'medium', 'high', 'highest'].map((n) => P.buildArgs({ noise: n }, 'L', 'O')[3]), ['0', '1', '2', '3']);
+// Artwork/Scans uses nunif's art_scan style
+assert.ok(P.buildArgs({ style: 'artwork_scan' }, 'L', 'O').join(' ').includes('--style art_scan'));
+
+// planRuns: same name with a different extension (or case) never shares a run
+{
+  const runs = planRuns(['/a/x.jpg', '/a/x.png', '/a/X.webp', '/a/y.png', '/b/x.png']);
+  for (const r of runs) {
+    const stems = r.map((f) => path.parse(f).name.toLowerCase());
+    assert.strictEqual(new Set(stems).size, stems.length, `clash in ${r}`);
+    assert.strictEqual(new Set(r.map((f) => path.dirname(f))).size, 1, 'one folder per run');
+  }
+  assert.strictEqual(runs.flat().length, 5);
+  assert.strictEqual(runs.length, 4); // /a split into 3 runs, /b one run
+}
+
+// listFileText: nunif reads the list with Python's csv module. Check with real Python that
+// commas, quotes-free Windows paths and Japanese characters come back exactly.
+{
+  const files = ['C:\\Art\\a, b (1).png', 'C:\\Art\\ミク イラスト.jpg', 'C:\\Art\\plain.png'];
+  const tmpList = path.join(os.tmpdir(), `w2x-list-${Date.now()}.txt`);
+  fs.writeFileSync(tmpList, listFileText(files), 'utf8');
+  // Same as nunif load_files(): open(txt, "r") + csv.reader, row[0]. -X utf8 as the app passes it.
+  const code = 'import csv,sys,json\nwith open(sys.argv[1], "r") as f:\n    print(json.dumps([r[0] for r in csv.reader(f)]))';
+  let out = null;
+  for (const exe of ['python3', 'python']) {
+    try {
+      out = execFileSync(exe, ['-X', 'utf8', '-c', code, tmpList]).toString();
+      break;
+    } catch (_) {
+      // try the next name
+    }
+  }
+  if (out === null) console.log('note: no Python found, skipped the list-file round trip check');
+  else assert.deepStrictEqual(JSON.parse(out), files);
+  fs.rmSync(tmpList, { force: true });
+}
+
+// fixPth: the stock python312._pth gains ..\nunif and import site, and running twice changes nothing
+{
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'w2x-pth-'));
+  const f = path.join(d, 'python312._pth');
+  fs.writeFileSync(f, 'python312.zip\r\n.\r\n\r\n# Uncomment to run site.main() automatically\r\n#import site\r\n');
+  E.fixPth(d);
+  const once = fs.readFileSync(f, 'utf8');
+  E.fixPth(d);
+  assert.strictEqual(fs.readFileSync(f, 'utf8'), once);
+  const lines = once.split('\r\n');
+  assert.ok(lines.includes('..\\nunif'));
+  assert.ok(lines.includes('import site'));
+  assert.ok(!lines.includes('#import site'));
+  assert.ok(lines.includes('python312.zip') && lines.includes('.'));
+  fs.rmSync(d, { recursive: true, force: true });
+}
+
+// pip download lines (taken from the user's real install log)
+assert.deepStrictEqual(E.parsePipDownload('  Downloading torch-2.5.1%2Bcu121-cp311-cp311-win_amd64.whl (2449.4 MB)'),
+  { name: 'torch-2.5.1+cu121-cp311-cp311-win_amd64.whl', bytes: 2449400000 });
+assert.deepStrictEqual(E.parsePipDownload('Downloading https://download.pytorch.org/whl/cu132/torch-2.14.1%2Bcu132-cp312-cp312-win_amd64.whl (3012.4 MB)'),
+  { name: 'torch-2.14.1+cu132-cp312-cp312-win_amd64.whl', bytes: 3012400000 });
+assert.strictEqual(E.parsePipDownload('Downloading mpmath-1.3.0-py3-none-any.whl (536 kB)').bytes, 536000);
+assert.strictEqual(E.parsePipDownload('Collecting torch'), null);
+
+// tqdm lines from nunif's model downloader
+{
+  const t = E.parseTqdm('Waifu2x Models:  45%|####5     | 12.3MiB/27.1MiB [00:05<00:06, 2.40MiB/s]');
+  assert.deepStrictEqual(t, { name: 'Waifu2x Models', pct: 45, done: 12300000, total: 27100000 });
+  assert.strictEqual(E.parseTqdm('Downloading waifu2x models'), null);
+}
+
+// Python flags and environment: isolated mode ignores PYTHON* variables, so -X utf8 must be on the command line
+assert.deepStrictEqual(pyArgs(['-m', 'waifu2x.cli']).slice(0, 3), ['-X', 'utf8', '-u']);
+process.env.PYTHONPATH = 'C:\\elsewhere';
+assert.strictEqual(cleanEnv().PYTHONPATH, undefined);
+delete process.env.PYTHONPATH;
+
+// lineSplitter handles \r progress redraws and lines split across chunks
+{
+  const got = [];
+  const ls = lineSplitter((l) => got.push(l));
+  ls.push('a 10%\r a 20');
+  ls.push('%\r\nb\nc');
+  ls.flush();
+  assert.deepStrictEqual(got, ['a 10%', ' a 20%', 'b', 'c']);
+}
 
 const groups = groupByDir(['/a/x.png', '/a/y.png', '/b/z.png']);
 assert.strictEqual(groups.length, 2);

@@ -704,9 +704,12 @@
     $('#dataWarn').textContent = info.missingDataDir
       ? `The data folder ${info.missingDataDir} is not available (is the external drive connected?). Using the default folder for now.`
       : '';
-    $('#engineStatus').textContent = info.engineInstalled
-      ? 'Installed. Ready to upscale.'
-      : 'Not installed yet. Click "Install engine" once to set it up.';
+    const eng = info.engine || {};
+    $('#engineStatus').textContent = !info.engineInstalled
+      ? 'Not installed yet, or the last install did not finish. Click "Install engine" to install or resume.'
+      : eng.cuda
+        ? `Installed and tested. Using ${eng.gpu} (PyTorch ${eng.torch}).`
+        : 'Installed and tested, but the GPU is not available, so upscaling will use the CPU (slow). Updating the NVIDIA driver and clicking "Install engine" again usually fixes this.';
   }
   // Progress from the engine install and the data move: { task, label, done, total, unit, log?, state?, message? }
   api.onTaskProgress((ev) => {

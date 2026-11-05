@@ -5,7 +5,7 @@ Batch upscaler and comparison viewer for anime art, built on nunif's waifu2x. Up
 ## For users
 
 1. Run `Waifu2x-Batch-<version>.exe`. No install needed.
-2. Open the **Setup** tab and click **Install engine** (once). It downloads Python, PyTorch with CUDA, nunif and the waifu2x models into the app's data folder. That is about 3 GB, mostly PyTorch. If it stops, click it again to continue.
+2. Open the **Setup** tab and click **Install engine** (once). It downloads Python 3.12, PyTorch with CUDA 13.2, nunif and the waifu2x models into the app's data folder (several GB, mostly PyTorch), then tests an upscale. If it stops, click it again to continue. CUDA 13.2 needs a recent NVIDIA driver; without one, upscaling falls back to the CPU and the Setup tab says so.
 3. Go to **Batch**, choose a folder, tick images, and click **Upscale selected**.
 
 Defaults match waifu2x.net: Artwork, Noise Reduction Medium, 2x.
@@ -48,6 +48,7 @@ npm run dist      # builds dist/Waifu2x-Batch-<version>.exe
 The GitHub Actions workflow in `.github/workflows/build.yml` builds the exe on Windows for every push, uploads it as an artifact, and publishes it to a release for `v*` tags.
 
 Notes:
-- The mapping from waifu2x.net's noise levels to nunif's levels (0 to 3) is a best guess in `lib/presets.js`. Check a result in the viewer and adjust `NOISE_LEVEL` if needed.
+- Noise levels match waifu2x.net exactly (taken from nunif's website code): None, Low = 0, Medium = 1, High = 2, Highest = 3.
 - nunif's 1.6x upscale is not in its CLI, so it is not offered.
-- `lib/engine.js` pins Python 3.11.9 and uses the CUDA 12.1 PyTorch build. Change those constants if you need a different version.
+- `lib/engine.js` follows nunif's own Windows installer (`windows_package/update.bat`): Python 3.12.10 embeddable with `..
+unif` in its `._pth` file, then `requirements-torch.txt` (PyTorch, CUDA 13.2) and `requirements.txt`. The install ends by upscaling a small test image.
