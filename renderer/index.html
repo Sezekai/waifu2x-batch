@@ -37,7 +37,12 @@
       <button id="cancelBtn" disabled>Cancel</button>
       <span class="hint">Already-done images with these settings are skipped. Nothing is overwritten.</span>
     </div>
-    <div class="progress"><div id="progBar"></div></div>
+    <div class="taskprog" id="batchProg" hidden>
+      <div class="tp-head"><span class="tp-label"></span><span class="tp-pct"></span></div>
+      <div class="progress"><div class="tp-bar"></div></div>
+      <div class="tp-detail"></div>
+      <div class="tp-warn"></div>
+    </div>
     <pre id="jobLog" class="log"></pre>
   </section>
 
@@ -91,8 +96,12 @@
         <button id="installEngine" class="primary">Install engine</button>
         <button id="checkSetup">Check engine</button>
       </div>
-      <div class="progress"><div id="engBar"></div></div>
-      <p id="engText" class="hint"></p>
+      <div class="taskprog" id="engProg" hidden>
+        <div class="tp-head"><span class="tp-label"></span><span class="tp-pct"></span></div>
+        <div class="progress"><div class="tp-bar"></div></div>
+        <div class="tp-detail"></div>
+        <div class="tp-warn"></div>
+      </div>
       <pre id="setupLog" class="log" style="height:200px"></pre>
 
       <details>
@@ -112,6 +121,7 @@
       <h3>App data</h3>
       <p class="hint">Stored outside the exe, so a new version keeps your history. Your images are never touched.</p>
       <p id="dataDir" class="hint"></p>
+      <p id="logPath" class="hint"></p>
       <p id="dataWarn" class="hint" style="color:#ff9f43"></p>
       <div class="row">
         <button id="moveData">Move app data…</button>
@@ -122,6 +132,7 @@
   </section>
 
   <script src="../lib/presets.js"></script>
+  <script src="../lib/progress.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

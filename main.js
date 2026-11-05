@@ -98,6 +98,19 @@ function createWindow() {
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 }
 
+// The install log is kept in the data folder, so you can open it to see what is happening.
+function engineLogFile() {
+  return path.join(dataDir, 'engine', 'install.log');
+}
+function writeLog(text) {
+  try {
+    fs.mkdirSync(path.dirname(engineLogFile()), { recursive: true });
+    fs.appendFileSync(engineLogFile(), text);
+  } catch (_) {
+    // logging must never stop the install
+  }
+}
+
 function engineInstalled() {
   return fs.existsSync(path.join(dataDir, 'engine', 'python', 'python.exe'));
 }
@@ -124,15 +137,10 @@ async function moveDataFolder() {
   engineBusy = true;
   try {
     fs.mkdirSync(target, { recursive: true });
-    send('engine:progress', { text: `Copying app data to ${target}`, pct: 0 });
     const stats = copyTree(
       dataDir,
       target,
-      (done, total) =>
-        send('engine:progress', {
-          text: `Copying app data: ${fmtBytes(done)} of ${fmtBytes(total)}`,
-          pct: total ? (done / total) * 100 : null,
-        }),
+      (done, total) => send('task:progress', { task: 'move', label: `Copying app data to ${target}`, done, total, unit: 'bytes' }),
       (rel) => rel.split(path.sep)[0] === 'staging'
     );
 
@@ -174,6 +182,7 @@ function registerIpc() {
     dataDir,
     engineInstalled: engineInstalled(),
     missingDataDir,
+    logFile: engineLogFile(),
   }));
 
   ipcMain.handle('files:scan', (_e, folder, recursive) => {
@@ -236,16 +245,26 @@ function registerIpc() {
   ipcMain.handle('engine:install', async () => {
     if (jobs.size || engineBusy) throw new Error('Another task is running.');
     engineBusy = true;
+    const report = (ev) => {
+      if (ev.log) writeLog(ev.log);
+      send('task:progress', { task: 'engine', ...ev });
+    };
+    writeLog(`\n===== Install started ${new Date().toLocaleString()} =====\n`);
     try {
-      const r = await installEngine(dataDir, (ev) => send('engine:progress', ev));
+      const r = await installEngine(dataDir, report);
       writeSettings({ ...readSettings(), python: r.python, nunifPath: r.nunifPath });
-      send('engine:progress', { log: '\nEngine installed and ready.\n', text: 'Engine ready', pct: 100 });
+      writeLog('\nEngine installed and ready.\n');
+      report({ label: 'Engine ready', done: 1, total: 1, unit: 'items', state: 'done', message: 'Engine installed and ready.' });
       return { ok: true };
     } catch (e) {
-      send('engine:progress', {
-        log: `\nInstall stopped: ${e.message}\nClick "Install engine" again to continue from where it stopped.\n`,
-        text: 'Install stopped. Click "Install engine" to resume.',
-        pct: null,
+      writeLog(`\nInstall stopped: ${e.message}\n`);
+      report({
+        label: 'Install stopped',
+        done: 0,
+        total: null,
+        unit: 'items',
+        state: 'error',
+        message: `Stopped: ${e.message}. Click "Install engine" to resume from where it stopped.`,
       });
       return { ok: false };
     } finally {

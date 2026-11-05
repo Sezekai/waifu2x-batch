@@ -33,6 +33,8 @@ Defaults match waifu2x.net: Artwork, Noise Reduction Medium, 2x.
 - Setup tab > **Reset app data** clears the version list and settings. It keeps the engine and never touches your images.
 - Setup tab > **Move app data…** moves the whole data folder (about 3 GB with the engine) to another drive, such as an external drive. It copies first, then deletes the old copy, and the app closes so you can reopen it.
 - The Setup tab shows download and install progress with a bar and the current step.
+- Install log: `engine\install.log` in the data folder. It lists every step with timestamps, plus all output from the installer tools. Open it if the install looks stuck.
+- Progress panels (Setup and Batch tabs) show a percentage, bytes or items done, speed, time elapsed and time left. Steps that cannot report their size (unpacking, some installs) show an animated bar and their elapsed time.
 
 ## For the developer
 

@@ -65,4 +65,15 @@ fs.rmSync(out, { force: true });
   fs.rmSync(base, { recursive: true, force: true });
 }
 
+// progress formatting
+const PG = require('../lib/progress');
+assert.strictEqual(PG.fmtBytes(0), '0 B');
+assert.strictEqual(PG.fmtBytes(250 * 1024 * 1024), '250 MB');
+assert.strictEqual(PG.fmtBytes(2.5 * 1024 ** 3), '2.50 GB');
+assert.strictEqual(PG.fmtTime(65), '1:05');
+assert.strictEqual(PG.fmtTime(3725), '1:02:05');
+assert.strictEqual(PG.fmtTime(NaN), '–');
+assert.strictEqual(PG.fmtRate(0, 'bytes'), '');
+assert.strictEqual(PG.fmtRate(5 * 1024 * 1024, 'bytes'), '5.00 MB/s');
+
 console.log('All tests passed.');

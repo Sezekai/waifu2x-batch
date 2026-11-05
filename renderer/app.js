@@ -65,6 +65,96 @@
     return read;
   }
 
+  // ---------- progress panels ----------
+  // Every task (engine install, data move, upscale job) reports into one of these panels.
+  // A step restarts its clock when its label changes. Rate and time left come from the work
+  // done since that step started, so a slow download shows a slow rate and a longer time left.
+  const TASKS = {};
+  const PR = window.Progress;
+
+  function renderTask(panelId, p) {
+    const root = document.getElementById(panelId);
+    if (!root) return;
+    root.hidden = false;
+    const now = Date.now();
+    let t = TASKS[panelId];
+    const restart =
+      !t ||
+      t.label !== p.label ||
+      (p.done != null && t.lastDone != null && p.done < t.lastDone) ||
+      (t.state !== 'running' && (p.state || 'running') === 'running');
+    if (restart) {
+      t = TASKS[panelId] = { label: p.label, start: now, firstDone: p.done || 0, lastDone: null, lastChange: now, endAt: null };
+    }
+    if (p.done != null && p.done !== t.lastDone) {
+      t.lastDone = p.done;
+      t.lastChange = now;
+    }
+    t.state = p.state || 'running';
+    t.last = p;
+    if (t.state !== 'running' && !t.endAt) t.endAt = now;
+    paintTask(panelId);
+  }
+
+  function paintTask(panelId) {
+    const t = TASKS[panelId];
+    const root = document.getElementById(panelId);
+    if (!t || !root) return;
+    const p = t.last;
+    const now = Date.now();
+    const unit = p.unit || 'items';
+    const unitWord = unit === 'bytes' ? '' : ` ${unit}`;
+    const end = t.endAt || now;
+    const elapsed = (end - t.start) / 1000;
+    const done = p.done || 0;
+    const total = p.total || null;
+    const running = t.state === 'running';
+    const rate = elapsed > 0.5 ? (done - t.firstDone) / elapsed : 0;
+    const etaSec = total && running && rate > 0 ? Math.max(0, (total - done) / rate) : null;
+    const pctRaw = total ? (done / total) * 100 : null;
+    // While running, cap at 99 so an estimated total never shows 100% before the step has really finished.
+    const pct = t.state === 'done' ? 100 : pctRaw === null ? null : running ? Math.min(99, pctRaw) : pctRaw;
+    const indet = running && pct === null;
+
+    root.querySelector('.tp-label').textContent = p.label;
+    root.querySelector('.tp-pct').textContent =
+      t.state === 'done' ? 'Done' : t.state === 'error' ? 'Stopped' : indet ? '' : `${Math.floor(pct || 0)}%`;
+
+    const bar = root.querySelector('.tp-bar');
+    bar.classList.toggle('indet', indet);
+    bar.classList.toggle('error', t.state === 'error');
+    bar.classList.toggle('done', t.state === 'done');
+    bar.style.width = indet ? '' : `${pct === null ? 100 : pct}%`;
+
+    const parts = [];
+    if (t.state === 'error' || t.state === 'done') {
+      parts.push(p.message || (t.state === 'done' ? 'Finished' : 'Stopped'));
+      parts.push(`took ${PR.fmtTime(elapsed)}`);
+    } else {
+      parts.push(total ? `${PR.fmtVal(done, unit)} of ${PR.fmtVal(total, unit)}${unitWord}` : `${PR.fmtVal(done, unit)}${unitWord} so far`);
+      const r = PR.fmtRate(rate, unit);
+      if (r) parts.push(r);
+      parts.push(`${PR.fmtTime(elapsed)} elapsed`);
+      parts.push(etaSec != null ? `about ${PR.fmtTime(etaSec)} left` : total ? 'estimating time left…' : 'time left unknown (no total reported)');
+    }
+    root.querySelector('.tp-detail').textContent = parts.join('  ·  ');
+
+    const idle = (now - t.lastChange) / 1000;
+    root.querySelector('.tp-warn').textContent =
+      running && idle > 20
+        ? `No new progress for ${PR.fmtTime(idle)}. Some steps (unpacking, installing) don't report progress, so this can be normal. The log shows what is running.`
+        : '';
+  }
+
+  // Redraw running panels every second so elapsed time and stall warnings keep moving.
+  setInterval(() => {
+    for (const id of Object.keys(TASKS)) {
+      const t = TASKS[id];
+      const root = document.getElementById(id);
+      if (t && root && !root.hidden && t.state === 'running') paintTask(id);
+    }
+  }, 1000);
+
   // ---------- shared state ----------
   const st = {
     folder: null,
@@ -164,7 +254,7 @@
       st.jobId = jobId;
       setRunning(true);
       $('#jobLog').textContent = '';
-      $('#progBar').style.width = '0%';
+      renderTask('batchProg', { label: 'Upscaling images', done: 0, total: null, unit: 'images' });
       $('#vStatus').textContent = 'Starting…';
     } catch (e) {
       alert(e.message);
@@ -172,9 +262,20 @@
   }
 
   api.onJob((ev) => {
-    const pct = ev.total ? Math.round((100 * ev.processed) / ev.total) : 100;
-    $('#progBar').style.width = `${pct}%`;
-    $('#vStatus').textContent = ev.finished ? ev.message : `Upscaling ${ev.processed}/${ev.total}`;
+    if (ev.finished) {
+      renderTask('batchProg', {
+        label: 'Upscaling images',
+        done: ev.total || 0,
+        total: ev.total || 0,
+        unit: 'images',
+        state: 'done',
+        message: ev.message,
+      });
+      $('#vStatus').textContent = ev.message;
+    } else {
+      renderTask('batchProg', { label: 'Upscaling images', done: ev.processed, total: ev.total, unit: 'images' });
+      $('#vStatus').textContent = `Upscaling ${ev.processed} of ${ev.total}`;
+    }
     if (ev.message) {
       const log = $('#jobLog');
       log.textContent += ev.message + '\n';
@@ -588,7 +689,7 @@
     try {
       const r = await api.moveDataFolder();
       if (r.ok) {
-        $('#engText').textContent = `Moved to ${r.target}. The app is closing. Reopen it.`;
+        renderTask('engProg', { label: 'Data moved', done: 1, total: 1, unit: 'items', state: 'done', message: `Moved to ${r.target}. The app is closing. Reopen it.` });
         alert(`Moved to:\n${r.target}\n\nThe app will close now. Open it again.`);
       }
     } catch (e) {
@@ -599,6 +700,7 @@
   async function refreshEngineStatus() {
     const info = await api.appInfo();
     $('#dataDir').textContent = `Data folder: ${info.dataDir}`;
+    $('#logPath').textContent = `Install log: ${info.logFile}`;
     $('#dataWarn').textContent = info.missingDataDir
       ? `The data folder ${info.missingDataDir} is not available (is the external drive connected?). Using the default folder for now.`
       : '';
@@ -606,19 +708,14 @@
       ? 'Installed. Ready to upscale.'
       : 'Not installed yet. Click "Install engine" once to set it up.';
   }
-  // Progress from the engine install and the data move: { log?, text?, pct? }
-  api.onEngineProgress((ev) => {
+  // Progress from the engine install and the data move: { task, label, done, total, unit, log?, state?, message? }
+  api.onTaskProgress((ev) => {
     if (ev.log) {
       const log = $('#setupLog');
       log.textContent += ev.log;
       log.scrollTop = log.scrollHeight;
     }
-    if (ev.text !== undefined) $('#engText').textContent = ev.text;
-    if (ev.pct !== undefined) {
-      const bar = $('#engBar');
-      bar.style.width = ev.pct === null ? '100%' : `${Math.min(100, Math.round(ev.pct))}%`;
-      bar.style.opacity = ev.pct === null ? '0.35' : '1';
-    }
+    if (ev.label) renderTask('engProg', ev);
   });
 
   // ---------- init ----------

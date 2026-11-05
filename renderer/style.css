@@ -80,3 +80,18 @@ h3 { margin: 4px 0; font-size: 13px; color: var(--muted); font-weight: 600; text
 .ver { display: flex; align-items: center; gap: 6px; padding: 4px; border-radius: 4px; }
 .ver.cur { background: #25292f; }
 .ver button.link { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Task progress panels: bar, percent, elapsed, time left, stall warning */
+.taskprog { display: flex; flex-direction: column; gap: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; }
+.taskprog[hidden] { display: none; }
+.tp-head { display: flex; justify-content: space-between; gap: 8px; font-weight: 600; }
+.tp-pct { font-variant-numeric: tabular-nums; color: var(--acc); }
+.taskprog .progress { height: 8px; }
+.tp-bar { height: 100%; width: 0; background: var(--acc); border-radius: 3px; transition: width .4s linear; }
+.tp-bar.indet { width: 30% !important; transition: none; animation: tpslide 1.4s ease-in-out infinite; }
+.tp-bar.error { background: #e0605e; }
+.tp-bar.done { background: var(--ok); }
+@keyframes tpslide { 0% { transform: translateX(-100%); } 100% { transform: translateX(340%); } }
+.tp-detail { color: var(--txt); font-size: 12px; font-variant-numeric: tabular-nums; }
+.tp-warn { color: #ff9f43; font-size: 12px; }
+.tp-warn:empty { display: none; }
