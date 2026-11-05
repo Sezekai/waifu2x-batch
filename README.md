@@ -28,7 +28,7 @@ Defaults match waifu2x.net: Artwork, Noise Reduction Medium, 2x.
 
 ## Where things live
 
-- Engine, version list and settings: the app data folder (shown in the Setup tab). Outside the exe, so updating the exe keeps everything.
+- Engine, version list and settings: the app data folder (shown in the Setup tab; by default `%APPDATA%\waifu2x-batch-upscaler`). Outside the exe, so updating the exe keeps everything.
 - Upscaled images: next to the source images.
 - Setup tab > **Reset app data** clears the version list and settings. It keeps the engine and never touches your images.
 - Setup tab > **Move app data…** moves the whole data folder (about 3 GB with the engine) to another drive, such as an external drive. It copies first, then deletes the old copy, and the app closes so you can reopen it.

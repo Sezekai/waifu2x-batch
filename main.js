@@ -111,8 +111,12 @@ function writeLog(text) {
   }
 }
 
+// Only true once the whole install has finished. python.exe alone is not enough, since PyTorch comes later.
 function engineInstalled() {
-  return fs.existsSync(path.join(dataDir, 'engine', 'python', 'python.exe'));
+  return (
+    fs.existsSync(path.join(dataDir, 'engine', 'ready.json')) &&
+    fs.existsSync(path.join(dataDir, 'engine', 'python', 'python.exe'))
+  );
 }
 
 // Moves the whole app data folder (engine, settings, version list) to a new place.
@@ -253,6 +257,7 @@ function registerIpc() {
     try {
       const r = await installEngine(dataDir, report);
       writeSettings({ ...readSettings(), python: r.python, nunifPath: r.nunifPath });
+      fs.writeFileSync(path.join(dataDir, 'engine', 'ready.json'), JSON.stringify({ installedAt: new Date().toISOString() }));
       writeLog('\nEngine installed and ready.\n');
       report({ label: 'Engine ready', done: 1, total: 1, unit: 'items', state: 'done', message: 'Engine installed and ready.' });
       return { ok: true };
