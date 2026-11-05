@@ -31,7 +31,9 @@ jobs:
       - name: Read version
         id: ver
         shell: bash
-        run: echo "version=$(node -p \"require('./package.json').version\")" >> "$GITHUB_OUTPUT"
+        run: |
+          VER=$(node -p "require('./package.json').version")
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
 
       # Every push to main publishes the version in package.json as a release (v<version>).
       # Pushing a v* tag does the same. Re-running for the same version replaces its exe.
