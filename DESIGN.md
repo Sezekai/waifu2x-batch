@@ -78,7 +78,9 @@ Never use the accent as decoration. State colours carry meaning only: `ok` for d
 ## Layout
 
 ```
-┌──────┬───────────────────────────────────────────────────────────────┐
+┌──────────────────────────────────────────────────────────────────────┐
+│ App name · Screen                                          ─  ▢  ✕  │  title bar, 32px, ground colour
+├──────┬───────────────────────────────────────────────────────────────┤
 │ rail │ Title  One-line description of what this screen does           │
 │ 64px │ ┌ toolbar panel ───────────────────────────────────────────┐ │
 │      │ │ Label  [ field ……………… ] [Browse] ☐ option │ [Stop] [Main] │ │
@@ -94,6 +96,11 @@ Never use the accent as decoration. State colours carry meaning only: `ok` for d
 └──────┴───────────────────────────────────────────────────────────────┘
 ```
 
+- **Title bar (32 px), no menu bar:**
+  - There's no File / Edit / View menu. Anything an app needs from one lives in the app itself: a rail tool, a button or a shortcut listed under **Keys**.
+  - The strip is the `ground` colour with a 1 px `line` underneath. It shows the app name in `text` at 600 weight, then `·` and the current screen in `faint`, both at 12 px. The whole strip drags the window.
+  - The system's minimise, maximise and close buttons sit on the right and follow the theme: background `ground`, symbols `sec`. In Electron that's `titleBarStyle: 'hidden'` plus `titleBarOverlay`, updated with `setTitleBarOverlay` whenever the theme changes. In WPF use `WindowChrome`; in PySide6 use a frameless window with your own buttons.
+  - F11 toggles full screen and hides the strip. Ctrl+Shift+I opens developer tools (for bug reports).
 - **Rail (64 px):**
   - The logo tile is first, in the accent.
   - Tools come next, each a 19 px icon with an 11 px label.
@@ -228,6 +235,7 @@ A font named in a theme that isn't available falls back to Inter. The reference 
 - Decorative monospace.
 - Gradient text.
 - Windows pop-up dialogs.
+- A native menu bar, or a title bar in the system colour.
 - Sideways scrolling.
 - Illustrations in empty states.
 - More than one primary button in a toolbar.

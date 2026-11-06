@@ -15,7 +15,19 @@
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
 body { background: var(--ground); color: var(--text); font: 400 var(--fs)/1.38 var(--font); font-variant-numeric: tabular-nums;
-  overflow: hidden; -webkit-font-smoothing: antialiased; }
+  overflow: hidden; -webkit-font-smoothing: antialiased; display: flex; flex-direction: column; }
+/* Title bar: same colour as the window, a line underneath. Windows draws its own buttons on the right
+   (coloured to match), so the strip leaves room for them. Drag it to move the window. */
+.titlebar { flex: 0 0 32px; height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 12px 0 16px;
+  padding-right: calc(100vw - env(titlebar-area-width, calc(100vw - 140px)) + 12px);
+  background: var(--ground); border-bottom: 1px solid var(--line); -webkit-app-region: drag; user-select: none;
+  font-size: 12px; color: var(--sec); white-space: nowrap; overflow: hidden; }
+.titlebar .tlogo { width: 18px; height: 18px; border-radius: max(4px, calc(var(--rp) * .6)); display: grid; place-items: center;
+  background: var(--grad); color: var(--on-acc); flex: none; }
+.titlebar .tlogo .ic { width: 11px; height: 11px; stroke-width: 2; }
+.titlebar .tname { color: var(--text); font-weight: 600; }
+.titlebar .tsep, .titlebar .tscreen { color: var(--faint); }
+body.fullscreen .titlebar { display: none; }
 button, input, select, textarea { font: inherit; color: inherit; }
 ::selection { background: color-mix(in oklab, var(--acc) 35%, transparent); }
 ::-webkit-scrollbar { width: 10px; height: 10px; }
@@ -76,7 +88,7 @@ input[type="checkbox"] { width: 15px; height: 15px; margin: 0; cursor: pointer; 
 .tag:empty { display: none; }
 
 /* ---------- shell ---------- */
-#app { display: grid; grid-template-columns: 64px 1fr; height: 100vh; }
+#app { display: grid; grid-template-columns: 64px 1fr; flex: 1; min-height: 0; }
 .rail { background: var(--rail); border-right: 1px solid var(--line); display: flex; flex-direction: column; align-items: center; padding: 10px 0; gap: 4px; }
 .rail .logo { width: 34px; height: 34px; border-radius: max(6px, var(--rp)); display: grid; place-items: center; margin-bottom: 10px; background: var(--grad); color: var(--on-acc); }
 .rail .logo .ic { width: 19px; height: 19px; stroke-width: 1.8; }

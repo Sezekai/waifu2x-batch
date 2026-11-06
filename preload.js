@@ -35,4 +35,9 @@ contextBridge.exposeInMainWorld('api', {
   importThemes: () => ipcRenderer.invoke('theme:import'),
   openPath: (p) => ipcRenderer.invoke('shell:open', p),
   showInFolder: (p) => ipcRenderer.invoke('shell:show', p),
+  // window
+  setTitleBar: (c) => ipcRenderer.invoke('window:titlebar', c),
+  toggleFullScreen: () => ipcRenderer.invoke('window:fullscreen'),
+  toggleDevTools: () => ipcRenderer.invoke('window:devtools'),
+  onWindowState: (cb) => on('window:state', cb),
 });

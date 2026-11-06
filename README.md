@@ -38,6 +38,13 @@ Defaults match waifu2x.net: Artwork, Noise Reduction Medium, 2x.
 - **Themes:** save looks as themes, and export or import them as `.theme.json` files. The same format works in every app that follows DESIGN.md.
 - **Default:** Obsidian, Lime → Teal, Inter, Standard corners, Compact density. **Reset to default** brings it back.
 
+## Window
+
+- **No menu bar.** The title bar matches the theme. Drag it to move the window.
+- **F11:** full screen.
+- **Ctrl+Shift+I:** developer tools (useful for bug reports).
+- **Ctrl+Shift+R:** reloads the window when nothing is running.
+
 ## Status bar and log
 
 - **Status bar:** every task shows a bar, a percentage, the time elapsed and the time left. Downloads also show bytes and speed. After 20 seconds with no new progress it says so.
@@ -59,6 +66,7 @@ npm start
 npm run dist      # builds dist/Waifu2x-Batch-<version>.exe
 ```
 
+- **Startup check:** `W2X_SMOKE=out.png npm start` opens the app, writes a screenshot and `out.log`, and exits with code 1 if the page script didn't start. CI runs it on the packaged exe before publishing.
 - **Builds:** every push to `main` builds the exe on Windows and publishes it as the GitHub release for the version in `package.json`.
 - **Design:** DESIGN.md is the design guideline for all the suite's apps. PRODUCT.md describes this app.
 - **Fonts:** bundled fonts are in `renderer/fonts` (SIL Open Font License, licences included).

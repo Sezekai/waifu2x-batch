@@ -28,6 +28,16 @@ jobs:
       - name: Build portable exe
         run: npm run dist
 
+      # Starts the packaged app and fails the build if the page doesn't come up (renderer errors,
+      # a script that didn't load, nothing clickable). The screenshot and log are printed below.
+      - name: Startup check (packaged app)
+        shell: bash
+        run: |
+          export W2X_SMOKE="$PWD/smoke.png"
+          timeout 120 "dist/win-unpacked/Waifu2x Batch.exe" || code=$?
+          cat smoke.log || echo "no smoke log written"
+          test -z "$code" || { echo "Startup check failed (exit $code)"; exit 1; }
+
       - name: Read version
         id: ver
         shell: bash

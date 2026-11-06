@@ -211,6 +211,9 @@
       if (k === 'scheme') document.documentElement.style.colorScheme = val;
       else root.setProperty('--' + k, val);
     }
+    // the window's own minimise / maximise / close buttons follow the theme too
+    const bg = look.current.background;
+    if (api.setTitleBar) api.setTitleBar({ color: bg.ground, symbolColor: bg.sec }).catch(() => {});
   }
   let saveTimer = null;
   function persistLook() {
@@ -346,6 +349,7 @@
     $$('.screen').forEach((s) => s.classList.toggle('on', s.id === 's-' + screen));
     $$('.rb[data-go]').forEach((b) => b.classList.toggle('on', b.dataset.go === screen));
     store.set('w2x-screen', screen);
+    $('#t-screen').textContent = { batch: 'Batch', compare: 'Compare', engine: 'Engine', appearance: 'Appearance' }[screen] || '';
     if (screen === 'compare') { renderCompareList(); renderVersions(); requestAnimationFrame(fitView); }
     if (screen === 'engine') renderEngine();
     if (screen === 'appearance') renderAppearance();
@@ -1195,11 +1199,13 @@
       [['Space'], 'Compare: hold to see the original'], [['Left mouse'], 'Compare, Hold mode: hold to see the original'],
       [['H', 'S', 'C'], 'Compare: Hold, Split, Side by side'], [['←', '→'], 'Compare: previous or next image'],
       [['+', '−'], 'Compare: zoom'], [['0'], 'Compare: fit'], [['Shift', 'click'], 'Batch: tick a range'], [['Double-click'], 'Batch: open the image in Compare'],
-      [['Esc'], 'Close a dialog or the log'],
+      [['Esc'], 'Close a dialog or the log'], [['F11'], 'Full screen'],
+      [['Ctrl', 'Shift', 'I'], 'Developer tools (for bug reports)'], [['Ctrl', 'Shift', 'R'], 'Reload the window (when nothing is running)'],
     ];
     dialog({ title: 'Keyboard shortcuts', ok: 'Close', cancel: '', extra: `<div class="keys">${rows.map(([k, l]) => `<span>${k.map((x) => `<span class="kbd">${esc(x)}</span>`).join('')}</span><span>${esc(l)}</span>`).join('')}</div>` });
   }
   $('#rb-keys').onclick = showKeys;
+  if (api.onWindowState) api.onWindowState((st) => document.body.classList.toggle('fullscreen', !!(st && st.fullScreen)));
   window.addEventListener('keydown', (e) => {
     if (dialogOpen) {
       if (e.key === 'Escape') dialogOpen({ ok: false });
@@ -1250,6 +1256,7 @@
     renderStatus();
     const start = store.get('w2x-screen', 'batch');
     go(!engineReady() ? 'batch' : ['batch', 'compare', 'engine', 'appearance'].includes(start) ? start : 'batch');
+    window.__appReady = true;
   }
   init();
 })();

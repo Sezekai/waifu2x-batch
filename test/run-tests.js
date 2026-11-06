@@ -202,4 +202,25 @@ assert.strictEqual(PG.fmtRate(5 * 1024 * 1024, 'bytes'), '5.00 MB/s');
   assert.strictEqual(T.cssVars(T.withBackground(d, 'daylight')).scheme, 'light');
 }
 
+// The page's scripts share one global scope, and Electron's preload already put a read-only
+// `api` there. A top-level name in a lib script that clashes with it (v0.3.0 had `const api`)
+// stops the whole page from starting. Load them all together the way index.html does.
+{
+  const vm = require('vm');
+  const html = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'index.html'), 'utf8');
+  const srcs = [...html.matchAll(/<script src="([^"]+)"><\/script>/g)].map((m) => m[1]);
+  assert.ok(srcs.length >= 4, 'index.html scripts');
+  const ctx = { console };
+  ctx.window = ctx;
+  vm.createContext(ctx);
+  vm.runInContext("Object.defineProperty(globalThis, 'api', { value: {}, writable: false, configurable: false, enumerable: true });", ctx);
+  for (const src of srcs.filter((s) => s !== 'app.js')) {
+    const file = path.join(__dirname, '..', 'renderer', src);
+    vm.runInContext(fs.readFileSync(file, 'utf8'), ctx, { filename: src });
+  }
+  assert.ok(ctx.Presets && ctx.Progress && ctx.Theme, 'lib scripts expose their globals');
+  // app.js keeps everything inside one function too
+  assert.ok(/^\s*(?:'use strict';\s*)?\(\s*(?:async\s*)?(?:function|\()/m.test(fs.readFileSync(path.join(__dirname, '..', 'renderer', 'app.js'), 'utf8').split('\n').slice(0, 3).join('\n')), 'app.js is wrapped');
+}
+
 console.log('All tests passed.');

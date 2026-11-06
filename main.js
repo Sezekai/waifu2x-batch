@@ -1,5 +1,5 @@
 'use strict';
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { pathToFileURL } = require('url');
@@ -115,22 +115,96 @@ function writeFontIndex(list) {
   fs.mkdirSync(fontsDir(), { recursive: true });
   fs.writeFileSync(fontIndexFile(), JSON.stringify(list, null, 2));
 }
+// The window has no menu bar. Its title bar is drawn by the page in the theme's colours; Windows
+// still draws the minimise, maximise and close buttons, coloured to match (see 'window:titlebar').
+const TITLEBAR_HEIGHT = 32;
+function titleBarColors(look) {
+  const bg = (look && look.current && look.current.background) || {};
+  return { color: bg.ground || '#0a0a0b', symbolColor: bg.sec || '#a0a0a7', height: TITLEBAR_HEIGHT };
+}
+
+// Shortcuts kept from the old menu bar: F11 full screen, Ctrl+Shift+I developer tools,
+// Ctrl+Shift+R reload the window.
+function windowShortcuts(e, input) {
+  if (input.type !== 'keyDown') return;
+  const key = String(input.key || '').toLowerCase();
+  if (key === 'f11') {
+    win.setFullScreen(!win.isFullScreen());
+    e.preventDefault();
+  } else if (input.control && input.shift && key === 'i') {
+    win.webContents.toggleDevTools();
+    e.preventDefault();
+  } else if (input.control && input.shift && key === 'r') {
+    if (!jobs.size && !engineBusy) win.webContents.reload();
+    e.preventDefault();
+  }
+}
+
 function createWindow() {
   const look = readAppearance();
+  Menu.setApplicationMenu(null);
   win = new BrowserWindow({
     width: 1500,
     height: 920,
     minWidth: 1100,
     minHeight: 680,
-    backgroundColor: (look && look.current && look.current.background && look.current.background.ground) || '#0a0a0b',
+    backgroundColor: titleBarColors(look).color,
     title: 'Waifu2x Batch',
+    titleBarStyle: 'hidden',
+    titleBarOverlay: titleBarColors(look),
+    autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       sandbox: true,
     },
   });
+  win.setMenuBarVisibility(false);
+  win.webContents.on('before-input-event', windowShortcuts);
+  win.on('enter-full-screen', () => send('window:state', { fullScreen: true }));
+  win.on('leave-full-screen', () => send('window:state', { fullScreen: false }));
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+  if (process.env.W2X_SMOKE) smokeTest(process.env.W2X_SMOKE);
+}
+
+// Startup check used by CI: prints renderer errors, saves a screenshot, and exits non-zero
+// if the page script did not start (nothing would be clickable).
+function smokeTest(outFile) {
+  const errors = [];
+  const lines = [];
+  const say = (t) => {
+    console.log(t);
+    lines.push(t);
+  };
+  win.webContents.on('console-message', (_e, level, message, line, source) => {
+    say(`[renderer:${level}] ${message} (${source}:${line})`);
+    if (level >= 3) errors.push(message);
+  });
+  win.webContents.on('preload-error', (_e, p, err) => {
+    say(`[preload-error] ${p}: ${err && err.stack}`);
+    errors.push(String(err));
+  });
+  win.webContents.on('did-fail-load', (_e, code, desc, url) => errors.push(`load failed ${code} ${desc} ${url}`));
+  win.webContents.once('did-finish-load', () => {
+    setTimeout(async () => {
+      let ready = false;
+      try {
+        ready = await win.webContents.executeJavaScript('window.__appReady === true');
+      } catch (e) {
+        errors.push(e.message);
+      }
+      try {
+        const img = await win.webContents.capturePage();
+        fs.writeFileSync(outFile, img.toPNG());
+      } catch (_) {}
+      say(`SMOKE ready=${ready} errors=${errors.length}`);
+      for (const e of errors) say(`  error: ${e}`);
+      try {
+        fs.writeFileSync(outFile.replace(/\.png$/i, '') + '.log', lines.join('\n') + '\n');
+      } catch (_) {}
+      app.exit(ready && !errors.length ? 0 : 1);
+    }, 2500);
+  });
 }
 
 // The install log is kept in the data folder, so you can open it to see what is happening.
@@ -427,6 +501,26 @@ function registerIpc() {
   });
 
   // Clears the app's own data (version list and settings). Never touches your images.
+  ipcMain.handle('window:titlebar', (_e, c) => {
+    const ok = (v) => typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v);
+    if (!win || !c || !ok(c.color) || !ok(c.symbolColor)) return false;
+    try {
+      win.setTitleBarOverlay({ color: c.color, symbolColor: c.symbolColor, height: TITLEBAR_HEIGHT });
+      win.setBackgroundColor(c.color);
+    } catch (_) {
+      return false; // not supported on this platform
+    }
+    return true;
+  });
+  ipcMain.handle('window:fullscreen', () => {
+    if (win) win.setFullScreen(!win.isFullScreen());
+    return win ? win.isFullScreen() : false;
+  });
+  ipcMain.handle('window:devtools', () => {
+    if (win) win.webContents.toggleDevTools();
+    return true;
+  });
+
   ipcMain.handle('app:reset', () => {
     if (jobs.size || engineBusy) throw new Error('Stop the running task first.');
     store.data = { variants: [] };
