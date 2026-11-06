@@ -9,6 +9,7 @@ const { listImages, pngSize, copyTree } = require('./lib/fsutil');
 const { runJob } = require('./lib/runner');
 const { installEngine, fmtBytes } = require('./lib/engine');
 const { pyArgs, cleanEnv } = require('./lib/pyenv');
+const { FONT_EXT, describeFontFile } = require('./lib/fontfile');
 
 // The app's data folder can be moved (e.g. to an external drive). A small pointer file in the
 // default folder records where it is. This must run before the app is ready.
@@ -85,11 +86,43 @@ function runPython(args) {
   });
 }
 
+// ---------- appearance: theme settings and the user's own fonts, kept in the app data folder ----------
+function appearanceFile() {
+  return path.join(dataDir, 'appearance.json');
+}
+function readAppearance() {
+  try {
+    return JSON.parse(fs.readFileSync(appearanceFile(), 'utf8'));
+  } catch (_) {
+    return null;
+  }
+}
+function fontsDir() {
+  return path.join(dataDir, 'fonts');
+}
+function fontIndexFile() {
+  return path.join(fontsDir(), 'index.json');
+}
+function readFontIndex() {
+  try {
+    const d = JSON.parse(fs.readFileSync(fontIndexFile(), 'utf8'));
+    return Array.isArray(d) ? d : [];
+  } catch (_) {
+    return [];
+  }
+}
+function writeFontIndex(list) {
+  fs.mkdirSync(fontsDir(), { recursive: true });
+  fs.writeFileSync(fontIndexFile(), JSON.stringify(list, null, 2));
+}
 function createWindow() {
+  const look = readAppearance();
   win = new BrowserWindow({
     width: 1500,
     height: 920,
-    backgroundColor: '#15161a',
+    minWidth: 1100,
+    minHeight: 680,
+    backgroundColor: (look && look.current && look.current.background && look.current.background.ground) || '#0a0a0b',
     title: 'Waifu2x Batch',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -193,6 +226,7 @@ function registerIpc() {
   });
 
   ipcMain.handle('app:info', () => ({
+    version: app.getVersion(),
     dataDir,
     engineInstalled: engineInstalled(),
     engine: engineInfo(),
@@ -228,7 +262,7 @@ function registerIpc() {
     if (jobs.size || engineBusy) throw new Error('Another task is running. Wait for it or cancel it.');
     if (!Array.isArray(items) || !items.length) throw new Error('No images selected.');
     const cfg = readSettings();
-    if (!cfg.nunifPath) throw new Error('The engine is not installed yet. Open the Setup tab and click "Install engine".');
+    if (!cfg.nunifPath) throw new Error('The engine is not installed yet. Open Engine and click "Install engine".');
     const jobId = Date.now().toString(36);
     const job = runJob({
       jobId,
@@ -303,6 +337,89 @@ function registerIpc() {
   });
 
   ipcMain.handle('data:move', () => moveDataFolder());
+
+  ipcMain.handle('appearance:get', () => readAppearance());
+  ipcMain.handle('appearance:set', (_e, data) => {
+    fs.writeFileSync(appearanceFile(), JSON.stringify(data, null, 2));
+    return true;
+  });
+
+  // Step 1 of adding a font: pick the files. Returns what was guessed from each file name.
+  ipcMain.handle('fonts:pick', async () => {
+    const r = await dialog.showOpenDialog(win, {
+      title: 'Choose font files (all the weights of one font)',
+      properties: ['openFile', 'multiSelections'],
+      filters: [{ name: 'Fonts', extensions: FONT_EXT.map((e) => e.slice(1)) }],
+    });
+    if (r.canceled || !r.filePaths.length) return null;
+    return r.filePaths.map(describeFontFile);
+  });
+  // Step 2: copy them into the app data folder under the family name the user confirmed.
+  ipcMain.handle('fonts:install', (_e, family, files) => {
+    family = String(family || '').trim();
+    if (!family) throw new Error('Give the font a name.');
+    if (!Array.isArray(files) || !files.length) throw new Error('No font files chosen.');
+    const id = family.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'font';
+    const dir = path.join(fontsDir(), id);
+    fs.mkdirSync(dir, { recursive: true });
+    const entries = [];
+    for (const f of files) {
+      if (!FONT_EXT.includes(path.extname(f.file).toLowerCase())) continue;
+      const name = path.basename(f.file);
+      fs.copyFileSync(f.file, path.join(dir, name));
+      entries.push({ name, weight: f.weight, style: f.style });
+    }
+    if (!entries.length) throw new Error('None of those files is a font (.ttf, .otf, .woff or .woff2).');
+    const list = readFontIndex().filter((x) => x.id !== id);
+    list.push({ id, family, files: entries, addedAt: new Date().toISOString() });
+    writeFontIndex(list);
+    return list;
+  });
+  ipcMain.handle('fonts:list', () => readFontIndex());
+  ipcMain.handle('fonts:read', (_e, id, name) => {
+    const p = path.join(fontsDir(), id, path.basename(name));
+    if (!p.startsWith(fontsDir())) throw new Error('Bad font path');
+    return fs.readFileSync(p);
+  });
+  ipcMain.handle('fonts:remove', (_e, id) => {
+    fs.rmSync(path.join(fontsDir(), path.basename(id)), { recursive: true, force: true });
+    const list = readFontIndex().filter((x) => x.id !== id);
+    writeFontIndex(list);
+    return list;
+  });
+
+  // Theme files: the same format for every app in the suite (see DESIGN.md).
+  ipcMain.handle('theme:export', async (_e, theme) => {
+    const safe = String(theme.name || 'theme').replace(/[\\/:*?"<>|]+/g, '_');
+    const r = await dialog.showSaveDialog(win, {
+      title: 'Save theme file',
+      defaultPath: `${safe}.theme.json`,
+      filters: [{ name: 'Theme', extensions: ['json'] }],
+    });
+    if (r.canceled || !r.filePath) return null;
+    fs.writeFileSync(r.filePath, JSON.stringify(theme, null, 2));
+    return r.filePath;
+  });
+  ipcMain.handle('theme:import', async () => {
+    const r = await dialog.showOpenDialog(win, {
+      title: 'Open theme files',
+      properties: ['openFile', 'multiSelections'],
+      filters: [{ name: 'Theme', extensions: ['json'] }],
+    });
+    if (r.canceled) return null;
+    const out = [];
+    for (const f of r.filePaths) {
+      try {
+        const d = JSON.parse(fs.readFileSync(f, 'utf8'));
+        (Array.isArray(d) ? d : [d]).forEach((t) => out.push(t));
+      } catch (e) {
+        throw new Error(`${path.basename(f)} is not a theme file (${e.message}).`);
+      }
+    }
+    return out;
+  });
+  ipcMain.handle('shell:open', (_e, p) => require('electron').shell.openPath(p));
+  ipcMain.handle('shell:show', (_e, p) => require('electron').shell.showItemInFolder(p));
 
   ipcMain.handle('setup:check', async () => {
     const r = await runPython(['-c', CHECK_CODE]);

@@ -2,137 +2,177 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' file: data: blob:; img-src 'self' file: data: blob:; font-src 'self' file: data: blob:; style-src 'self' 'unsafe-inline' file:; script-src 'self' file:">
   <title>Waifu2x Batch</title>
+  <link rel="stylesheet" href="fonts/fonts.css">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <nav class="tabs">
-    <button class="tab-btn active" data-tab="batch">Batch</button>
-    <button class="tab-btn" data-tab="viewer">Viewer</button>
-    <button class="tab-btn" data-tab="setup">Setup</button>
+<div id="app">
+  <nav class="rail" aria-label="Main">
+    <div class="logo" data-ic="logo" title="Waifu2x Batch"></div>
+    <button class="rb on" data-go="batch" title="Batch upscale (1)"><span data-ic="batch"></span>Batch</button>
+    <button class="rb" data-go="compare" title="Compare (2)"><span data-ic="compare"></span>Compare</button>
+    <button class="rb" data-go="engine" id="rb-engine" title="Engine (3)"><span data-ic="engine"></span>Engine</button>
+    <div class="grow"></div>
+    <button class="rb" data-go="appearance" title="Appearance (4)"><span data-ic="palette"></span>Look</button>
+    <button class="rb" id="rb-keys" title="Keyboard shortcuts (?)"><span data-ic="keys"></span>Keys</button>
+    <button class="rb" id="rb-log" title="Log (L)"><span data-ic="log"></span>Log</button>
   </nav>
 
-  <!-- BATCH -->
-  <section id="tab-batch" class="tab active">
-    <div class="bar">
-      <button id="pickFolder">Choose folder…</button>
-      <label class="inline"><input type="checkbox" id="recursive"> include subfolders</label>
-      <span id="folderLabel" class="muted">No folder selected</span>
-    </div>
-    <div class="cols">
-      <div class="listwrap">
-        <div class="listhead">
-          <label class="inline"><input type="checkbox" id="selAll"> Select all</label>
-          <span id="batchCount" class="muted"></span>
+  <div class="main">
+    <!-- ================= BATCH ================= -->
+    <section class="screen on" id="s-batch">
+      <div class="head"><h2>Batch upscale</h2><p>Upscale every image in a folder with waifu2x. Results are saved next to each image; nothing is overwritten.</p></div>
+      <div class="banner" id="b-banner" hidden></div>
+      <div class="panel tools">
+        <div class="trow">
+          <span class="lab">Folder</span>
+          <button class="field pathfield" id="b-folder" title="Choose a folder"><span class="ph">Choose a folder of images</span></button>
+          <button class="btn" id="b-browse"><span data-ic="folder"></span>Browse</button>
+          <label class="cb"><input type="checkbox" id="b-recursive">Include subfolders</label>
+          <div class="divider"></div>
+          <button class="btn danger-ghost" id="b-stop" hidden><span data-ic="stop"></span>Stop</button>
+          <button class="btn primary" id="b-run"><span data-ic="upscale"></span><span id="b-run-t">Upscale</span></button>
         </div>
-        <ul id="batchList" class="imglist"></ul>
+        <div class="trow"><span class="lab">Settings</span><span class="setting-host" id="b-settings"></span><span class="faint grow-r" id="b-settings-note">Same options as waifu2x.net · PNG output</span></div>
       </div>
-      <aside class="panel">
-        <h3>Settings</h3>
-        <div id="batchForm"></div>
-      </aside>
-    </div>
-    <div class="runbar">
-      <button id="runBtn" class="primary">Upscale selected</button>
-      <button id="cancelBtn" disabled>Cancel</button>
-      <span class="hint">Already-done images with these settings are skipped. Nothing is overwritten.</span>
-    </div>
-    <div class="taskprog" id="batchProg" hidden>
-      <div class="tp-head"><span class="tp-label"></span><span class="tp-pct"></span></div>
-      <div class="progress"><div class="tp-bar"></div></div>
-      <div class="tp-detail"></div>
-      <div class="tp-warn"></div>
-    </div>
-    <pre id="jobLog" class="log"></pre>
-  </section>
+      <div class="panel results">
+        <div class="rhead">
+          <div class="sum" id="b-sum"></div>
+          <span class="faint small" id="b-hint">Shift-click to tick a range</span>
+          <div class="seg" id="b-filter" role="tablist" aria-label="Filter"></div>
+          <button class="btn" id="b-all">Select all</button>
+          <button class="btn" id="b-none">Select none</button>
+        </div>
+        <div class="list" id="b-list">
+          <table>
+            <colgroup><col style="width:34px"><col><col style="width:110px"><col style="width:126px"><col style="width:82px"><col style="width:150px"></colgroup>
+            <thead><tr><th><input type="checkbox" id="b-headchk" aria-label="Tick all shown"></th><th>File</th><th>Size</th><th>Output</th><th>Versions</th><th>Status</th></tr></thead>
+            <tbody id="b-rows"></tbody>
+          </table>
+          <div class="empty" id="b-empty"></div>
+        </div>
+      </div>
+    </section>
 
-  <!-- VIEWER -->
-  <section id="tab-viewer" class="tab">
-    <div class="cols3">
-      <aside class="sources">
-        <div class="listhead"><span>Images</span><button id="vPick">Folder…</button></div>
-        <ul id="srcList" class="imglist"></ul>
-      </aside>
-      <main class="vmain">
-        <div class="bar">
-          <div class="seg" id="modes">
-            <button data-mode="hold" class="active">Hold to compare</button>
-            <button data-mode="slider">Slider</button>
-            <button data-mode="side">Side by side</button>
+    <!-- ================= COMPARE ================= -->
+    <section class="screen" id="s-compare">
+      <div class="panel imgs">
+        <div class="top">
+          <button class="folder" id="c-folder" title="Choose a folder"><span data-ic="folder"></span><b id="c-folder-name">No folder</b><span id="c-folder-path"></span></button>
+          <div class="pills" id="c-filter"></div>
+        </div>
+        <div class="ilist" id="c-list"></div>
+      </div>
+      <div class="col">
+        <div class="head"><h2>Compare</h2><p id="c-sub">Hold Space for the original everywhere; in Hold mode, hold the left mouse button too. Zoom and pan are shared by every view.</p></div>
+        <div class="banner" id="c-banner" hidden></div>
+        <div class="panel tools">
+          <div class="trow">
+            <div class="seg" id="c-modes"><button data-m="hold" title="Hold to compare (H)"><span data-ic="hold"></span>Hold</button><button data-m="split" title="Split slider (S)"><span data-ic="split"></span>Split</button><button data-m="side" title="Side by side (C)"><span data-ic="side"></span>Side by side</button></div>
+            <div class="divider"></div>
+            <button class="btn icon" id="z-out" title="Zoom out (-)" aria-label="Zoom out"><span data-ic="zout"></span></button>
+            <span class="zoomlab" id="z-lab">–</span>
+            <button class="btn icon" id="z-in" title="Zoom in (+)" aria-label="Zoom in"><span data-ic="zin"></span></button>
+            <button class="btn" id="z-fit" title="Fit (0)"><span data-ic="fit"></span>Fit</button>
+            <button class="btn" id="z-1" title="Original pixels at 100% (1)">1:1</button>
+            <span class="grow-r"></span>
+            <button class="btn ghost" id="c-show" title="Show the shown version in its folder"><span data-ic="folderopen"></span>Show in folder</button>
           </div>
-          <button id="zOut">−</button>
-          <span id="zoomLabel" class="muted">100%</span>
-          <button id="zIn">+</button>
-          <button id="zFit">Fit</button>
-          <button id="z1">100%</button>
-          <span id="vStatus" class="muted"></span>
+          <div class="trow"><span class="lab">Run again</span><span class="setting-host" id="c-settings"></span><span class="grow-r"></span>
+            <button class="btn primary" id="c-rerun" title="Adds a new version of this image; nothing is overwritten"><span data-ic="again"></span>Upscale again</button></div>
         </div>
-        <div id="stage" class="stage">
-          <div id="panes"></div>
-          <div id="holdBadge" class="holdbadge">ORIGINAL</div>
-        </div>
-        <div id="vHint" class="hint"></div>
-      </main>
-      <aside class="panel">
-        <h3>Versions</h3>
-        <ul id="verList" class="verlist"></ul>
-        <h3>Run again on this image</h3>
-        <div id="viewerForm"></div>
-        <button id="rerunBtn" class="primary">Upscale this image</button>
-      </aside>
-    </div>
-  </section>
-
-  <!-- SETUP -->
-  <section id="tab-setup" class="tab">
-    <div class="panel wide">
-      <h3>Engine</h3>
-      <p id="engineStatus" class="hint">Checking…</p>
-      <p class="hint">
-        The engine is Python, PyTorch and nunif's waifu2x models. It installs into the app's data folder
-        and is about 3 GB, mostly PyTorch. You only need to do this once. If it stops partway, click the button again.
-      </p>
-      <div class="row">
-        <button id="installEngine" class="primary">Install engine</button>
-        <button id="checkSetup">Check engine</button>
+        <div class="stage" id="stage" tabindex="0" aria-label="Image comparison"><div class="panes" id="panes"></div><div class="empty" id="c-empty"></div></div>
+        <div class="panel strip" id="c-vers"></div>
       </div>
-      <div class="taskprog" id="engProg" hidden>
-        <div class="tp-head"><span class="tp-label"></span><span class="tp-pct"></span></div>
-        <div class="progress"><div class="tp-bar"></div></div>
-        <div class="tp-detail"></div>
-        <div class="tp-warn"></div>
-      </div>
-      <pre id="setupLog" class="log" style="height:200px"></pre>
+    </section>
 
-      <details>
-        <summary class="hint">Advanced: use your own Python and nunif</summary>
-        <label>Python command or full path to python.exe
-          <input type="text" id="pyPath" placeholder="python">
-        </label>
-        <label>nunif folder (repo root)
-          <div class="row">
-            <input type="text" id="nunifPath" placeholder="C:\Tools\nunif">
-            <button id="pickNunif">Browse…</button>
+    <!-- ================= ENGINE ================= -->
+    <section class="screen" id="s-engine">
+      <div class="head"><h2>Engine</h2><p>Python, PyTorch and nunif's waifu2x models, installed once into the app's data folder.</p></div>
+      <div class="scroll">
+        <div class="eng">
+          <div class="panel card">
+            <div class="cardhead"><h3 id="e-title">Engine</h3><span class="tag" id="e-tag"></span></div>
+            <p class="lead" id="e-lead"></p>
+            <div class="steps" id="e-steps"></div>
+            <div class="prog" id="e-prog" hidden>
+              <div class="ph"><b id="e-label"></b><span id="e-pct"></span></div>
+              <div class="bar"><i id="e-bar"></i></div>
+              <div class="pd" id="e-detail"></div>
+              <div class="pw" id="e-warn"></div>
+            </div>
+            <div class="trow">
+              <button class="btn primary" id="e-install"><span data-ic="engine"></span><span id="e-install-t">Install engine</span></button>
+              <button class="btn" id="e-check"><span data-ic="check"></span>Check engine</button>
+              <span class="grow-r"></span>
+              <button class="btn ghost" id="e-openlog"><span data-ic="log"></span>Open install log</button>
+            </div>
           </div>
-        </label>
-        <div class="row"><button id="saveSetup">Save</button></div>
-      </details>
-
-      <h3>App data</h3>
-      <p class="hint">Stored outside the exe, so a new version keeps your history. Your images are never touched.</p>
-      <p id="dataDir" class="hint"></p>
-      <p id="logPath" class="hint"></p>
-      <p id="dataWarn" class="hint" style="color:#ff9f43"></p>
-      <div class="row">
-        <button id="moveData">Move app data…</button>
-        <button id="resetApp">Reset app data</button>
-        <span class="hint">Clears the version list and settings. Engine and images stay.</span>
+          <div class="panel card">
+            <h3>App data</h3>
+            <p class="lead">Settings, the version list, your themes and fonts, and the engine all live here, outside the app, so a new version keeps everything. Your images are never stored here.</p>
+            <div class="warnline" id="e-missing" hidden></div>
+            <div class="kv"><span>Data folder</span><code id="e-datadir"></code><span>Install log</span><code id="e-logfile"></code></div>
+            <div class="trow">
+              <button class="btn" id="e-show"><span data-ic="folderopen"></span>Open folder</button>
+              <button class="btn" id="e-move"><span data-ic="folder"></span>Move app data…</button>
+              <button class="btn danger-ghost" id="e-reset"><span data-ic="trash"></span>Reset app data…</button>
+            </div>
+          </div>
+          <details class="panel card adv">
+            <summary><h3>Advanced: use your own Python and nunif</h3></summary>
+            <div class="kv2">
+              <label for="e-py">Python</label><input class="input" id="e-py" placeholder="python or C:\path\to\python.exe">
+              <label for="e-nunif">nunif folder</label><div class="trow"><input class="input" id="e-nunif" placeholder="C:\Tools\nunif"><button class="btn" id="e-nunif-browse">Browse</button></div>
+            </div>
+            <div class="trow"><button class="btn" id="e-save-adv">Save paths</button><span class="faint small">Installing the engine fills these in for you.</span></div>
+          </details>
+        </div>
       </div>
-    </div>
-  </section>
+    </section>
 
-  <script src="../lib/presets.js"></script>
-  <script src="../lib/progress.js"></script>
-  <script src="app.js"></script>
+    <!-- ================= APPEARANCE ================= -->
+    <section class="screen" id="s-appearance">
+      <div class="panel themes">
+        <div class="top"><b>Themes</b><span class="faint small">Click to use</span></div>
+        <div class="tlist" id="a-themes"></div>
+        <div class="tfoot">
+          <button class="btn primary" id="a-save"><span data-ic="plus"></span>Save as theme…</button>
+          <div class="trow"><button class="btn" id="a-import"><span data-ic="download"></span>Import…</button><button class="btn" id="a-export"><span data-ic="upload"></span>Export…</button></div>
+        </div>
+      </div>
+      <div class="col">
+        <div class="head"><h2>Appearance</h2><p id="a-desc"></p><span class="grow-r"></span><button class="btn ghost" id="a-reset"><span data-ic="again"></span>Reset to default</button></div>
+        <div class="scroll" id="a-scroll">
+          <div class="aform" id="a-form"></div>
+        </div>
+      </div>
+    </section>
+
+    <div class="drawer" id="drawer" aria-label="Log">
+      <div class="dh"><span data-ic="log"></span><b>Log</b><button class="btn ghost" id="d-copy">Copy</button><button class="btn ghost" id="d-clear">Clear</button><button class="btn ghost" id="d-close">Close</button></div>
+      <pre id="logtext"></pre>
+    </div>
+    <div class="status" id="status">
+      <div class="job"><b id="s-job">Ready</b><span class="name" id="s-name"></span></div>
+      <div class="track"><i id="s-bar"></i></div><span class="pct" id="s-pct">–</span>
+      <span class="time" id="s-time">Nothing running</span>
+      <button class="btn" id="s-review" hidden><span data-ic="compare"></span>Review</button>
+      <button class="btn danger-ghost" id="s-stop" hidden><span data-ic="stop"></span>Stop</button>
+      <button class="btn" id="s-log"><span data-ic="log"></span>Log</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="overlay" hidden><div class="dialog" id="dialog" role="dialog" aria-modal="true"></div></div>
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<script src="fonts/fonts.js"></script>
+<script src="../lib/presets.js"></script>
+<script src="../lib/progress.js"></script>
+<script src="../lib/theme.js"></script>
+<script src="app.js"></script>
 </body>
 </html>

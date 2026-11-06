@@ -23,4 +23,16 @@ contextBridge.exposeInMainWorld('api', {
   moveDataFolder: () => ipcRenderer.invoke('data:move'),
   checkSetup: () => ipcRenderer.invoke('setup:check'),
   resetAppData: () => ipcRenderer.invoke('app:reset'),
+  // appearance
+  getAppearance: () => ipcRenderer.invoke('appearance:get'),
+  setAppearance: (d) => ipcRenderer.invoke('appearance:set', d),
+  pickFonts: () => ipcRenderer.invoke('fonts:pick'),
+  installFont: (family, files) => ipcRenderer.invoke('fonts:install', family, files),
+  listFonts: () => ipcRenderer.invoke('fonts:list'),
+  readFont: (id, name) => ipcRenderer.invoke('fonts:read', id, name),
+  removeFont: (id) => ipcRenderer.invoke('fonts:remove', id),
+  exportTheme: (t) => ipcRenderer.invoke('theme:export', t),
+  importThemes: () => ipcRenderer.invoke('theme:import'),
+  openPath: (p) => ipcRenderer.invoke('shell:open', p),
+  showInFolder: (p) => ipcRenderer.invoke('shell:show', p),
 });

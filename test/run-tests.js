@@ -166,4 +166,40 @@ assert.strictEqual(PG.fmtTime(NaN), '–');
 assert.strictEqual(PG.fmtRate(0, 'bytes'), '');
 assert.strictEqual(PG.fmtRate(5 * 1024 * 1024, 'bytes'), '5.00 MB/s');
 
+// Font file names -> family, weight, style
+{
+  const { describeFontFile: d } = require('../lib/fontfile');
+  const a = d('C:\\Fonts\\Satoshi-BoldItalic.otf');
+  assert.deepStrictEqual([a.family, a.weight, a.style, a.name], ['Satoshi', 700, 'italic', 'Satoshi-BoldItalic.otf']);
+  assert.deepStrictEqual([d('C:\\F\\CabinetGrotesk-Medium.woff2').family, d('C:\\F\\CabinetGrotesk-Medium.woff2').weight], ['Cabinet Grotesk', 500]);
+  assert.strictEqual(d('C:\\F\\Inter[wght].ttf').weight, '100 900');
+  assert.strictEqual(d('/x/Clash Display Semibold.otf').family, 'Clash Display');
+}
+
+// Theme engine: default look, repair of bad input, accent text contrast, every preset readable
+{
+  const T = require('../lib/theme');
+  const d = T.normalize(T.DEFAULT_THEME);
+  assert.strictEqual(T.describe(d).text, 'Obsidian · Lime → Teal · Inter · Standard · Compact');
+  const bad = T.normalize({ background: { ground: 'nope' }, accent: { stops: ['#abc', 'bad'], angle: 900 }, font: { size: 99 }, density: { control: 3 } });
+  assert.strictEqual(bad.background.ground, d.background.ground);
+  assert.deepStrictEqual(bad.accent.stops, ['#aabbcc']);
+  assert.strictEqual(bad.accent.angle, 360);
+  assert.strictEqual(bad.font.size, 16);
+  assert.strictEqual(bad.density.control, 24);
+  assert.strictEqual(T.onAccent(d), '#0b0c0f');
+  assert.strictEqual(T.onAccent(T.normalize({ accent: { stops: ['#1f5fd6'] } })), '#ffffff');
+  for (const [k, b] of Object.entries(T.BACKGROUNDS)) {
+    for (const f of ['text', 'sec', 'faint']) assert.ok(T.contrast(b[f], b.panel) >= 4.5, `${k}.${f} contrast`);
+  }
+  for (const [k, a] of Object.entries(T.ACCENTS)) {
+    const t = T.normalize({ accent: { stops: a.stops } });
+    assert.ok(Math.min(...a.stops.map((c) => T.contrast(T.onAccent(t), c))) >= 4.5, `${k} accent text contrast`);
+  }
+  const v = T.cssVars(d);
+  assert.strictEqual(v.grad, 'linear-gradient(90deg, #b6f05a, #2fd6b4)');
+  assert.strictEqual(v.ch, '28px');
+  assert.strictEqual(T.cssVars(T.withBackground(d, 'daylight')).scheme, 'light');
+}
+
 console.log('All tests passed.');

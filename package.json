@@ -1,6 +1,6 @@
 {
   "name": "waifu2x-batch-upscaler",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "description": "Batch upscaler and comparison viewer for nunif's waifu2x",
   "main": "main.js",
   "private": true,
