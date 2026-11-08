@@ -1,11 +1,13 @@
 'use strict';
-const { app, BrowserWindow, ipcMain, dialog, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Menu, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { pathToFileURL } = require('url');
 const { spawn } = require('child_process');
 const { Store } = require('./lib/store');
-const { listImages, pngSize, copyTree } = require('./lib/fsutil');
+const { listImages, pngSize, imageSize, copyTree } = require('./lib/fsutil');
+const gpu = require('./lib/gpu');
+const sets = require('./lib/sets');
 const { runJob } = require('./lib/runner');
 const { installEngine, fmtBytes } = require('./lib/engine');
 const { pyArgs, cleanEnv } = require('./lib/pyenv');
@@ -32,9 +34,13 @@ let store = null;
 let dataDir = null;
 let settingsFile = null;
 let engineBusy = false;
-const jobs = new Map();
 
-const DEFAULT_SETTINGS = { python: 'python', nunifPath: '' };
+// Upscale jobs run one at a time. Starting another while one runs puts it in the queue.
+const queue = [];
+let running = null;
+const busy = () => !!running || queue.length > 0;
+
+const DEFAULT_SETTINGS = { python: 'python', nunifPath: '', gpu: 'auto' };
 
 const CHECK_CODE = [
   'import sys, os',
@@ -117,25 +123,25 @@ function writeFontIndex(list) {
 }
 // The window has no menu bar. Its title bar is drawn by the page in the theme's colours; Windows
 // still draws the minimise, maximise and close buttons, coloured to match (see 'window:titlebar').
+// The overlay (Windows' own buttons) is 1px shorter than the page's 32px strip, so the strip's bottom
+// line runs the full width, under the buttons too.
 const TITLEBAR_HEIGHT = 32;
+const OVERLAY_HEIGHT = TITLEBAR_HEIGHT - 1;
 function titleBarColors(look) {
   const bg = (look && look.current && look.current.background) || {};
-  return { color: bg.ground || '#0a0a0b', symbolColor: bg.sec || '#a0a0a7', height: TITLEBAR_HEIGHT };
+  return { color: bg.ground || '#0a0a0b', symbolColor: bg.sec || '#a0a0a7', height: OVERLAY_HEIGHT };
 }
 
-// Shortcuts kept from the old menu bar: F11 full screen, Ctrl+Shift+I developer tools,
-// Ctrl+Shift+R reload the window.
+// Shortcuts kept from the old menu bar: Ctrl+Shift+I developer tools, Ctrl+Shift+R reload the window.
+// F and F11 (full screen) are handled by the page, since what they do depends on the screen.
 function windowShortcuts(e, input) {
   if (input.type !== 'keyDown') return;
   const key = String(input.key || '').toLowerCase();
-  if (key === 'f11') {
-    win.setFullScreen(!win.isFullScreen());
-    e.preventDefault();
-  } else if (input.control && input.shift && key === 'i') {
+  if (input.control && input.shift && key === 'i') {
     win.webContents.toggleDevTools();
     e.preventDefault();
   } else if (input.control && input.shift && key === 'r') {
-    if (!jobs.size && !engineBusy) win.webContents.reload();
+    if (!busy() && !engineBusy) win.webContents.reload();
     e.preventDefault();
   }
 }
@@ -171,6 +177,11 @@ function createWindow() {
 // if the page script did not start (nothing would be clickable).
 function smokeTest(outFile) {
   const errors = [];
+  if (process.env.W2X_SMOKE_SIZE) {
+    const [w, h] = process.env.W2X_SMOKE_SIZE.split('x').map(Number);
+    win.setMinimumSize(Math.min(w, 1100), Math.min(h, 680));
+    win.setSize(w, h);
+  }
   const lines = [];
   const say = (t) => {
     console.log(t);
@@ -197,6 +208,26 @@ function smokeTest(outFile) {
         const img = await win.webContents.capturePage();
         fs.writeFileSync(outFile, img.toPNG());
       } catch (_) {}
+      // Optional scripted steps (W2X_SMOKE_STEPS: a .js file exporting [{ name, js, wait }]): each runs
+      // in the page, then a screenshot named after the step is saved next to the main one.
+      if (ready && process.env.W2X_SMOKE_STEPS) {
+        const steps = require(path.resolve(process.env.W2X_SMOKE_STEPS));
+        for (const st of steps) {
+          try {
+            const out = await win.webContents.executeJavaScript(`(async () => { ${st.js || ''} })()`, true);
+            if (out !== undefined) say(`[step ${st.name}] ${typeof out === 'string' ? out : JSON.stringify(out)}`);
+          } catch (e) {
+            errors.push(`step ${st.name}: ${e.message}`);
+          }
+          await new Promise((r) => setTimeout(r, st.wait || 400));
+          if (st.shot !== false) {
+            try {
+              const img = await win.webContents.capturePage();
+              fs.writeFileSync(outFile.replace(/\.png$/i, '') + `-${st.name}.png`, img.toPNG());
+            } catch (_) {}
+          }
+        }
+      }
       say(`SMOKE ready=${ready} errors=${errors.length}`);
       for (const e of errors) say(`  error: ${e}`);
       try {
@@ -229,6 +260,45 @@ function engineInfo() {
   }
 }
 
+// GPU state: the newest of the install test (ready.json) and the last Diagnose GPU (gpu.json).
+function gpuFile() {
+  return path.join(dataDir, 'engine', 'gpu.json');
+}
+function gpuReportFile() {
+  return path.join(dataDir, 'engine', 'gpu-report.txt');
+}
+function lastDiag() {
+  try {
+    return JSON.parse(fs.readFileSync(gpuFile(), 'utf8'));
+  } catch (_) {
+    return null;
+  }
+}
+function gpuStatus() {
+  const ready = engineInfo();
+  const diag = lastDiag();
+  const readyAt = ready ? Date.parse(ready.installedAt) || 0 : 0;
+  const diagAt = diag ? Date.parse(diag.at) || 0 : 0;
+  if (diag && diag.result && diagAt >= readyAt && diag.result.status !== 'unknown') {
+    const dev = (diag.result.devices || [])[0];
+    return { available: diag.result.status === 'ok', device: dev ? dev.name : null, devices: diag.result.devices || [], from: 'diagnose', at: diag.at };
+  }
+  if (ready) return { available: !!ready.cuda, device: ready.gpu || null, devices: ready.gpu ? [{ index: 0, name: ready.gpu }] : [], from: 'install', at: ready.installedAt };
+  return { available: null, device: null, devices: [], from: null };
+}
+// Which device a job uses. Auto: the NVIDIA GPU when PyTorch can see it, otherwise the CPU.
+function gpuChoice() {
+  const want = readSettings().gpu;
+  const stat = gpuStatus();
+  if (want === 'cpu') return { gpu: -1, device: 'CPU', chosen: true };
+  if (Number.isInteger(want)) {
+    const d = stat.devices.find((x) => x.index === want);
+    return { gpu: want, device: d ? d.name : `GPU ${want}`, chosen: true };
+  }
+  if (stat.available === false) return { gpu: -1, device: 'CPU', fallback: true };
+  return { gpu: undefined, device: stat.device || 'NVIDIA GPU' };
+}
+
 function engineInstalled() {
   return (
     fs.existsSync(path.join(dataDir, 'engine', 'ready.json')) &&
@@ -240,7 +310,7 @@ function engineInstalled() {
 // Order matters: copy, then update settings and pointer, then delete the old copy. If anything
 // fails before the delete, the old data is still intact.
 async function moveDataFolder() {
-  if (jobs.size || engineBusy) throw new Error('Stop the running task first.');
+  if (busy() || engineBusy) throw new Error('Stop the running task first.');
   const r = await dialog.showOpenDialog(win, {
     title: 'Choose a folder on the external drive',
     properties: ['openDirectory', 'createDirectory'],
@@ -299,25 +369,120 @@ function registerIpc() {
     return r.canceled ? null : r.filePaths[0];
   });
 
-  ipcMain.handle('app:info', () => ({
-    version: app.getVersion(),
-    dataDir,
-    engineInstalled: engineInstalled(),
-    engine: engineInfo(),
-    missingDataDir,
-    logFile: engineLogFile(),
-  }));
+  ipcMain.handle('app:info', () => {
+    const d = lastDiag();
+    return {
+      version: app.getVersion(),
+      dataDir,
+      engineInstalled: engineInstalled(),
+      engine: engineInfo(),
+      missingDataDir,
+      logFile: engineLogFile(),
+      gpu: gpuStatus(),
+      gpuDiag: d ? { ...d.result, at: d.at, reportFile: gpuReportFile() } : null,
+      gpuChoice: gpuChoice(),
+    };
+  });
 
-  ipcMain.handle('files:scan', (_e, folder, recursive) => {
+  // ---- GPU ----
+  ipcMain.handle('gpu:diagnose', async () => {
+    const cfg = readSettings();
+    const installed = engineInstalled() || (cfg.nunifPath && cfg.python !== 'python');
+    const d = await gpu.diagnose({
+      python: installed ? cfg.python : null,
+      cwd: cfg.nunifPath || undefined,
+      onStep: (label, done, total) => send('task:progress', { task: 'gpu', label, done, total, unit: 'checks' }),
+    });
+    const report = gpu.reportText(d);
+    try {
+      fs.mkdirSync(path.dirname(gpuFile()), { recursive: true });
+      fs.writeFileSync(gpuFile(), JSON.stringify({ at: d.raw.at, result: d.result }, null, 2));
+      fs.writeFileSync(gpuReportFile(), report);
+    } catch (_) {
+      // the report is still returned
+    }
+    return { ...d.result, at: d.raw.at, report, reportFile: gpuReportFile(), choice: gpuChoice() };
+  });
+  ipcMain.handle('gpu:usage', async () => {
+    const want = readSettings().gpu;
+    return gpu.gpuUsage(Number.isInteger(want) ? want : 0);
+  });
+
+  // One image's entry for the lists. A set whose original was deleted but still has versions is
+  // described from its newest version (missing: true), so it can still be compared and finished.
+  function describeItem(p, root, bySrc) {
+    const vars = (bySrc.get(p) || []).filter((v) => fs.existsSync(v.output));
+    let st = null;
+    try {
+      st = fs.statSync(p);
+    } catch (_) {
+      // original gone
+    }
+    if (st && st.isFile()) {
+      const size = imageSize(p);
+      return { path: p, name: path.basename(p), dir: path.dirname(p), root, url: pathToFileURL(p).href, bytes: st.size, mtime: st.mtimeMs,
+        w: size ? size.w : null, h: size ? size.h : null, variantTags: vars.map((v) => v.tag), versions: vars.length };
+    }
+    if (!vars.length) return null;
+    const last = vars[vars.length - 1];
+    const size = imageSize(last.output);
+    const f = ({ none: 1, '2x': 2, '4x': 4 })[(last.settings && last.settings.scale) || '2x'] || 2;
+    return { path: p, name: path.basename(p), dir: path.dirname(p), root, url: pathToFileURL(last.output).href, bytes: 0, mtime: 0,
+      w: size ? Math.round(size.w / f) : null, h: size ? Math.round(size.h / f) : null, variantTags: vars.map((v) => v.tag), versions: vars.length, missing: true };
+  }
+
+  // Lists every image in the given folders. Upscaled versions, finished sets and the "Upscaled Images"
+  // folders are left out. Reports progress, since reading thousands of image headers takes a moment.
+  ipcMain.handle('files:scan', async (_e, folders, recursive) => {
+    const roots = (Array.isArray(folders) ? folders : [folders]).filter(Boolean);
     const bySrc = store.bySource();
     const outs = store.outputSet();
-    return listImages(folder, !!recursive).map((p) => ({
-      path: p,
-      name: path.basename(p),
-      url: pathToFileURL(p).href,
-      isVariant: outs.has(p),
-      variantTags: (bySrc.get(p) || []).map((v) => v.tag),
-    }));
+    const resolved = store.resolvedSet();
+    const seen = new Set();
+    const items = [];
+    const errors = [];
+    const under = (p, root) => {
+      const rel = path.relative(root, p);
+      if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return false;
+      return recursive ? true : !rel.includes(path.sep);
+    };
+    const todo = [];
+    send('task:progress', { task: 'scan', label: 'Listing image files', done: 0, total: null, unit: 'images' });
+    for (const root of roots) {
+      try {
+        if (!fs.statSync(root).isDirectory()) throw new Error('not a folder');
+      } catch (e) {
+        errors.push({ root, message: e.code === 'ENOENT' ? 'Folder not found (moved, renamed, or the drive is not connected)' : e.message });
+        continue;
+      }
+      for (const p of listImages(root, !!recursive)) {
+        if (seen.has(p) || outs.has(p) || resolved.has(p)) continue;
+        seen.add(p);
+        todo.push([p, root]);
+      }
+      for (const [src] of bySrc) {
+        if (seen.has(src) || resolved.has(src) || !under(src, root) || fs.existsSync(src)) continue;
+        seen.add(src);
+        todo.push([src, root]);
+      }
+    }
+    for (let i = 0; i < todo.length; i++) {
+      const it = describeItem(todo[i][0], todo[i][1], bySrc);
+      if (it) items.push(it);
+      if (i % 150 === 149) {
+        send('task:progress', { task: 'scan', label: 'Reading image sizes', done: i + 1, total: todo.length, unit: 'images' });
+        await new Promise((r) => setImmediate(r));
+      }
+    }
+    send('task:progress', { task: 'scan', label: 'Reading image sizes', done: todo.length, total: todo.length, unit: 'images', state: 'done' });
+    return { items, errors };
+  });
+
+  // Fresh entries for a few images, after an upscale or a keep / delete. null = the set is gone.
+  ipcMain.handle('files:describe', (_e, entries) => {
+    const bySrc = store.bySource();
+    const resolved = store.resolvedSet();
+    return (entries || []).map(([p, root]) => (resolved.has(p) ? null : describeItem(p, root, bySrc)));
   });
 
   ipcMain.handle('variants:list', (_e, source) =>
@@ -332,32 +497,79 @@ function registerIpc() {
     return true;
   });
 
-  ipcMain.handle('job:start', (_e, items, settings) => {
-    if (jobs.size || engineBusy) throw new Error('Another task is running. Wait for it or cancel it.');
-    if (!Array.isArray(items) || !items.length) throw new Error('No images selected.');
+  // Finishing a set: keep the best version (with or without the original), or delete one file.
+  // Deleting always goes to the Recycle Bin.
+  const trash = (p) => shell.trashItem(p);
+  ipcMain.handle('set:keep', async (_e, source, variantId, keepOriginal) => {
+    if (running && running.items.includes(source)) throw new Error('This image is being upscaled right now. Wait for it to finish.');
+    return sets.keepBest({ store, source, variantId, keepOriginal: !!keepOriginal, trash });
+  });
+  ipcMain.handle('set:delete', async (_e, source, which) => {
+    if (running && running.items.includes(source)) throw new Error('This image is being upscaled right now. Wait for it to finish.');
+    return sets.deleteFile({ store, source, which, trash });
+  });
+
+  // ---- the job queue ----
+  const queueState = () => ({ running: running ? { jobId: running.jobId, count: running.items.length, label: running.label } : null,
+    queued: queue.map((q) => ({ jobId: q.jobId, count: q.items.length, label: q.label })) });
+  const sendQueue = () => send('job:queue', queueState());
+  function pump() {
+    if (running || engineBusy || !queue.length) return sendQueue();
+    const q = queue.shift();
     const cfg = readSettings();
-    if (!cfg.nunifPath) throw new Error('The engine is not installed yet. Open Engine and click "Install engine".');
-    const jobId = Date.now().toString(36);
-    const job = runJob({
-      jobId,
-      items,
-      settings,
+    const choice = gpuChoice();
+    running = q;
+    send('job:event', { jobId: q.jobId, started: true, total: q.items.length, processed: 0, device: choice.device, cpuFallback: !!choice.fallback });
+    q.job = runJob({
+      jobId: q.jobId,
+      items: q.items,
+      settings: q.settings,
       python: cfg.python,
       nunifPath: cfg.nunifPath,
       stagingRoot: path.join(dataDir, 'staging'),
       store,
-      onProgress: (ev) => send('job:event', ev),
+      gpu: choice.gpu,
+      onProgress: (ev) => send('job:event', { ...ev, device: choice.device }),
     });
-    jobs.set(jobId, job);
-    job.promise.finally(() => jobs.delete(jobId));
-    return { jobId };
+    sendQueue();
+    q.job.promise.finally(() => {
+      running = null;
+      pump();
+    });
+  }
+  ipcMain.handle('job:start', (_e, items, settings, label) => {
+    if (engineBusy) throw new Error('The engine is being installed. Wait for it to finish.');
+    if (!Array.isArray(items) || !items.length) throw new Error('No images selected.');
+    if (!readSettings().nunifPath) throw new Error('The engine is not installed yet. Open Engine and click "Install engine".');
+    const jobId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    queue.push({ jobId, items, settings, label: String(label || '') });
+    const position = running ? queue.length : 0;
+    pump();
+    return { jobId, queued: position };
   });
-
   ipcMain.handle('job:cancel', (_e, jobId) => {
-    const j = jobs.get(jobId);
-    if (j) j.cancel();
+    if (running && running.jobId === jobId) {
+      running.job.cancel();
+      return true;
+    }
+    const i = queue.findIndex((q) => q.jobId === jobId);
+    if (i >= 0) {
+      const [q] = queue.splice(i, 1);
+      send('job:event', { jobId, finished: true, cancelled: true, removed: true, total: q.items.length, processed: 0, made: 0, skipped: 0, failed: 0, doneFiles: [], failedFiles: [], message: 'Removed from the queue.' });
+      sendQueue();
+    }
     return true;
   });
+  // Stop: empties the queue, then cancels the running job.
+  ipcMain.handle('job:cancelAll', () => {
+    for (const q of queue.splice(0)) {
+      send('job:event', { jobId: q.jobId, finished: true, cancelled: true, removed: true, total: q.items.length, processed: 0, made: 0, skipped: 0, failed: 0, doneFiles: [], failedFiles: [], message: 'Removed from the queue.' });
+    }
+    if (running) running.job.cancel();
+    sendQueue();
+    return true;
+  });
+  ipcMain.handle('job:queue', () => queueState());
 
   ipcMain.handle('settings:get', () => readSettings());
   ipcMain.handle('settings:set', (_e, s) => {
@@ -365,22 +577,24 @@ function registerIpc() {
     return true;
   });
 
-  ipcMain.handle('engine:install', async () => {
-    if (jobs.size || engineBusy) throw new Error('Another task is running.');
+  ipcMain.handle('engine:install', (_e, opts) => runInstall(opts || {}));
+  async function runInstall(opts) {
+    if (busy() || engineBusy) throw new Error('Wait for the upscaling queue to finish first.');
     engineBusy = true;
+    const repair = !!opts.torchOnly;
     const report = (ev) => {
       if (ev.log) writeLog(ev.log);
       send('task:progress', { task: 'engine', ...ev });
     };
-    writeLog(`\n===== Install started ${new Date().toLocaleString()} =====\n`);
+    writeLog(`\n===== ${repair ? 'GPU repair' : 'Install'} started ${new Date().toLocaleString()} =====\n`);
     // Not ready until this install finishes, even if an earlier one did.
     fs.rmSync(path.join(dataDir, 'engine', 'ready.json'), { force: true });
     try {
-      const r = await installEngine(dataDir, report);
+      const r = await installEngine(dataDir, report, opts);
       writeSettings({ ...readSettings(), python: r.python, nunifPath: r.nunifPath });
       fs.writeFileSync(
         path.join(dataDir, 'engine', 'ready.json'),
-        JSON.stringify({ installedAt: new Date().toISOString(), cuda: r.cuda, gpu: r.gpu, torch: r.torch }, null, 2)
+        JSON.stringify({ installedAt: new Date().toISOString(), cuda: r.cuda, gpu: r.gpu, torch: r.torch, build: r.build, driverCuda: r.driverCuda }, null, 2)
       );
       writeLog('\nEngine installed and ready.\n');
       report({
@@ -390,10 +604,11 @@ function registerIpc() {
         unit: 'items',
         state: 'done',
         message: r.cuda
-          ? `Engine installed and tested. Using ${r.gpu}.`
-          : 'Engine installed and tested, but the GPU is not available, so upscaling will use the CPU (slow). Updating the NVIDIA driver usually fixes this.',
+          ? `${repair ? 'GPU support repaired' : 'Engine installed'} and tested. Upscaling runs on ${r.gpu}.`
+          : `${repair ? 'Repair finished' : 'Engine installed and tested'}, but PyTorch still can't use the GPU, so upscaling runs on the CPU (slow). Diagnose GPU on the Engine screen shows why.`,
+        cuda: r.cuda,
       });
-      return { ok: true };
+      return { ok: true, cuda: r.cuda };
     } catch (e) {
       writeLog(`\nInstall stopped: ${e.message}\n`);
       report({
@@ -402,13 +617,14 @@ function registerIpc() {
         total: null,
         unit: 'items',
         state: 'error',
-        message: `Stopped: ${e.message}. Click "Install engine" to resume from where it stopped.`,
+        message: `Stopped: ${e.message}. Click "${repair ? 'Repair GPU support' : 'Install engine'}" to try again.`,
       });
       return { ok: false };
     } finally {
       engineBusy = false;
+      pump();
     }
-  });
+  }
 
   ipcMain.handle('data:move', () => moveDataFolder());
 
@@ -494,6 +710,10 @@ function registerIpc() {
   });
   ipcMain.handle('shell:open', (_e, p) => require('electron').shell.openPath(p));
   ipcMain.handle('shell:show', (_e, p) => require('electron').shell.showItemInFolder(p));
+  ipcMain.handle('shell:external', (_e, url) => {
+    if (!/^https:\/\/[\w.-]+\.(nvidia|microsoft|lenovo)\.com\//i.test(String(url))) throw new Error('Only known help pages can be opened.');
+    return shell.openExternal(url);
+  });
 
   ipcMain.handle('setup:check', async () => {
     const r = await runPython(['-c', CHECK_CODE]);
@@ -505,7 +725,7 @@ function registerIpc() {
     const ok = (v) => typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v);
     if (!win || !c || !ok(c.color) || !ok(c.symbolColor)) return false;
     try {
-      win.setTitleBarOverlay({ color: c.color, symbolColor: c.symbolColor, height: TITLEBAR_HEIGHT });
+      win.setTitleBarOverlay({ color: c.color, symbolColor: c.symbolColor, height: OVERLAY_HEIGHT });
       win.setBackgroundColor(c.color);
     } catch (_) {
       return false; // not supported on this platform
@@ -522,8 +742,8 @@ function registerIpc() {
   });
 
   ipcMain.handle('app:reset', () => {
-    if (jobs.size || engineBusy) throw new Error('Stop the running task first.');
-    store.data = { variants: [] };
+    if (busy() || engineBusy) throw new Error('Stop the running task first.');
+    store.data = { variants: [], resolved: [] };
     store.save();
     fs.rmSync(settingsFile, { force: true });
     return true;
@@ -540,6 +760,7 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
-  for (const j of jobs.values()) j.cancel();
+  queue.length = 0;
+  if (running) running.job.cancel();
   app.quit();
 });

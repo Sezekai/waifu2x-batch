@@ -223,4 +223,163 @@ assert.strictEqual(PG.fmtRate(5 * 1024 * 1024, 'bytes'), '5.00 MB/s');
   assert.ok(/^\s*(?:'use strict';\s*)?\(\s*(?:async\s*)?(?:function|\()/m.test(fs.readFileSync(path.join(__dirname, '..', 'renderer', 'app.js'), 'utf8').split('\n').slice(0, 3).join('\n')), 'app.js is wrapped');
 }
 
+// ---------------------------------------------------------------------------------------------
+// GPU: PyTorch build for the driver, and the diagnosis verdicts
+{
+  const G = require('../lib/gpu');
+  assert.strictEqual(G.chooseBuild(13020), 'cu132');
+  assert.strictEqual(G.chooseBuild(13040), 'cu132');
+  assert.strictEqual(G.chooseBuild(13000), 'cu130');
+  assert.strictEqual(G.chooseBuild(12080), 'cu126');
+  assert.strictEqual(G.chooseBuild(12000), 'cu126');
+  assert.strictEqual(G.chooseBuild(11080), null);
+  assert.strictEqual(G.chooseBuild(null), null);
+  assert.strictEqual(G.buildOfTorch('2.14.1+cu132'), 'cu132');
+  assert.strictEqual(G.buildOfTorch('2.14.1+cpu'), 'cpu');
+  assert.strictEqual(G.cudaText(13020), '13.2');
+  assert.strictEqual(G.parseCudaText('12.6'), 12060);
+  assert.strictEqual(G.nvidiaVersionFromWindows('32.0.15.9597'), '595.97');
+  assert.strictEqual(G.nvidiaVersionFromWindows('31.0.15.6603'), '566.03');
+  const head = G.parseSmiHeader('| NVIDIA-SMI 566.03   Driver Version: 566.03   CUDA Version: 12.7 |');
+  assert.deepStrictEqual(head, { cuda: 12070, driver: '566.03' });
+  assert.deepStrictEqual(G.parseSmiQuery('0, NVIDIA GeForce RTX 3060 Laptop GPU, 595.97, 6144, 87, 3120, 71\n')[0],
+    { index: 0, name: 'NVIDIA GeForce RTX 3060 Laptop GPU', driver: '595.97', memTotal: 6144, util: 87, memUsed: 3120, temp: 71 });
+
+  // nunif's requirements-torch.txt, with the build tag swapped everywhere
+  const nunifReq = '--extra-index-url https://download.pytorch.org/whl/cpu\n--extra-index-url https://download.pytorch.org/whl/cu132\ntorch==2.14.1+cu132; sys_platform == "win32"\ntorchvision==0.29.1+cu132; sys_platform == "win32"\n';
+  const r126 = G.torchRequirements(nunifReq, 'cu126');
+  assert.ok(r126.includes('whl/cu126') && r126.includes('torch==2.14.1+cu126') && r126.includes('torchvision==0.29.1+cu126') && !r126.includes('cu132'));
+  assert.ok(r126.includes('whl/cpu'));
+  assert.throws(() => G.torchRequirements(nunifReq, 'cu999'));
+
+  const laptop = { adapters: [
+    { name: 'AMD Radeon(TM) Graphics', status: 'OK', problem: 0, present: true, driverVersion: '31.0.21921.1000' },
+    { name: 'NVIDIA GeForce RTX 3060 Laptop GPU', status: 'OK', problem: 0, present: true, driverVersion: '31.0.15.6603' },
+  ] };
+  // Driver 566 (CUDA 12.7) with the CUDA 13.2 build: the most likely case. Repair offers CUDA 12.6.
+  const old = G.analyze({ windows: laptop, smi: { driver: '566.03', cuda: 12070, gpus: [] },
+    python: { torch: '2.14.1+cu132', torch_cuda: '13.2', driver_cuda: 12070, nvcuda: true, cu_init: 0, available: false, warnings: ['CUDA initialization: The NVIDIA driver on your system is too old (found version 12070).'] } });
+  assert.strictEqual(old.status, 'cpu');
+  assert.strictEqual(old.bestBuild, 'cu126');
+  assert.ok(old.canRepair);
+  assert.ok(old.findings.some((f) => f.level === 'error' && /needs CUDA 13\.2.*only supports CUDA 12\.7/.test(f.title) && f.action === 'repair'));
+  assert.ok(old.findings.some((f) => f.level === 'info' && /Two GPUs/.test(f.title)), 'explains the two GPUs');
+  assert.ok(/Main problem: PyTorch needs CUDA 13\.2/.test(old.summary));
+
+  // Everything right
+  const ok = G.analyze({ windows: laptop, smi: { driver: '595.97', cuda: 13020, gpus: [] },
+    python: { torch: '2.14.1+cu132', torch_cuda: '13.2', driver_cuda: 13020, nvcuda: true, cu_init: 0, available: true, compute_ok: true, arch_list: ['sm_75', 'sm_80', 'sm_86'],
+      devices: [{ index: 0, name: 'NVIDIA GeForce RTX 3060 Laptop GPU', cap: '8.6', mem: 6442450944 }] } });
+  assert.strictEqual(ok.status, 'ok');
+  assert.ok(!ok.findings.some((f) => f.level === 'error'));
+  assert.ok(!ok.canRepair);
+  assert.strictEqual(ok.summary, 'Upscaling runs on NVIDIA GeForce RTX 3060 Laptop GPU.');
+
+  // Disabled in Device Manager
+  const dis = G.analyze({ windows: { adapters: [laptop.adapters[0], { ...laptop.adapters[1], problem: 22, status: 'Error' }] }, smi: null,
+    python: { torch: '2.14.1+cu132', torch_cuda: '13.2', nvcuda: true, cu_init: 100, available: false } });
+  assert.ok(dis.findings.some((f) => /it is disabled/.test(f.title) && /Enable device/.test(f.fix)));
+  assert.ok(dis.findings.some((f) => /no CUDA-capable device/.test(f.title)));
+
+  // NVIDIA GPU switched off: Windows only sees the AMD GPU
+  const off = G.analyze({ windows: { adapters: [laptop.adapters[0]] }, smi: null, python: { torch: '2.14.1+cu132', torch_cuda: '13.2', nvcuda: false, nvcuda_error: 'OSError', available: false } });
+  assert.ok(off.findings[0].level === 'error' && /doesn't see an NVIDIA GPU/.test(off.findings[0].title));
+
+  // CUDA_VISIBLE_DEVICES hides the GPU; a CPU-only build
+  const env = G.analyze({ windows: laptop, smi: { driver: '595.97', cuda: 13020 }, python: { torch: '2.14.1+cpu', torch_cuda: null, env_cvd: '-1', nvcuda: true, cu_init: 0, available: false } });
+  assert.ok(env.findings.some((f) => /CUDA_VISIBLE_DEVICES/.test(f.title)));
+  assert.ok(env.findings.some((f) => /CPU-only build/.test(f.title) && f.action === 'repair'));
+  assert.strictEqual(env.bestBuild, 'cu132');
+
+  // Engine not installed yet: Windows and driver checks only
+  const pre = G.analyze({ windows: laptop, smi: { driver: '595.97', cuda: 13020 }, python: { skipped: 'The engine is not installed yet.' } });
+  assert.strictEqual(pre.status, 'unknown');
+
+  // Windows adapter list merges Get-PnpDevice and WMI
+  const m = G.mergeAdapters({ pnp: [{ FriendlyName: 'NVIDIA GeForce RTX 3060 Laptop GPU', Status: 'Error', Problem: 43, InstanceId: 'PCI\\VEN_10DE', Present: true }],
+    video: { Name: 'NVIDIA GeForce RTX 3060 Laptop GPU', DriverVersion: '32.0.15.9597', PNPDeviceID: 'PCI\\VEN_10DE', ConfigManagerErrorCode: 43 } });
+  assert.deepStrictEqual(m.adapters[0], { name: 'NVIDIA GeForce RTX 3060 Laptop GPU', status: 'Error', problem: 43, present: true, driverVersion: '32.0.15.9597' });
+
+  // A device choice reaches waifu2x as --gpu; the CPU is -1
+  assert.ok(P.buildArgs({}, 'L', 'O', { gpu: -1 }).join(' ').includes('--gpu -1 -i L'));
+  assert.ok(!P.buildArgs({}, 'L', 'O', {}).includes('--gpu'));
+
+  // Failure messages
+  const { explainFailure } = require('../lib/runner');
+  assert.ok(/smaller Tile size/.test(explainFailure(['torch.OutOfMemoryError: CUDA out of memory. Tried to allocate'])));
+  assert.ok(/Diagnose GPU/.test(explainFailure(['ValueError: No cuda/mps/xpu available. Use `--gpu -1` for CPU.'])));
+  assert.strictEqual(explainFailure(['something else']), null);
+}
+
+// Image sizes from file headers (no decoding): PNG, JPEG (size marker after other segments), WebP, BMP, GIF
+{
+  const { sizeFromBuffer, imageSize } = require('../lib/fsutil');
+  const png = Buffer.alloc(24); png.writeUInt32BE(0x89504e47, 0); png.writeUInt32BE(640, 16); png.writeUInt32BE(480, 20);
+  assert.deepStrictEqual(sizeFromBuffer(png), { w: 640, h: 480 });
+  const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x04, 0x00, 0x00, 0xff, 0xdb, 0x00, 0x03, 0x00, 0xff, 0xc2, 0x00, 0x11, 0x08, 0x02, 0xbc, 0x01, 0xf4, 0x03, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+  assert.deepStrictEqual(sizeFromBuffer(jpeg), { w: 500, h: 700 });
+  assert.strictEqual(sizeFromBuffer(Buffer.from([0xff, 0xd8, 0xff, 0xe1, 0x40, 0x00, 0, 0, 0, 0, 0, 0])), undefined, 'JPEG marker beyond the buffer: read more');
+  const webp = Buffer.alloc(30); webp.write('RIFF', 0, 'latin1'); webp.write('WEBP', 8, 'latin1'); webp.write('VP8X', 12, 'latin1'); webp.writeUIntLE(1919, 24, 3); webp.writeUIntLE(1079, 27, 3);
+  assert.deepStrictEqual(sizeFromBuffer(webp), { w: 1920, h: 1080 });
+  const bmp = Buffer.alloc(26); bmp.write('BM', 0, 'latin1'); bmp.writeInt32LE(300, 18); bmp.writeInt32LE(-200, 22);
+  assert.deepStrictEqual(sizeFromBuffer(bmp), { w: 300, h: 200 });
+  const gif = Buffer.from('GIF89a\x40\x01\xf0\x00', 'latin1');
+  assert.deepStrictEqual(sizeFromBuffer(gif), { w: 320, h: 240 });
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'w2x-size-'));
+  fs.writeFileSync(path.join(tmp, 'a.png'), png);
+  assert.deepStrictEqual(imageSize(path.join(tmp, 'a.png')), { w: 640, h: 480 });
+  assert.strictEqual(imageSize(path.join(tmp, 'missing.png')), null);
+  fs.rmSync(tmp, { recursive: true, force: true });
+}
+
+// Finishing a set: keep the best version (with or without the original), delete one file.
+// "trash" stands in for the Recycle Bin. Kept folders are never scanned again.
+{
+  const S = require('../lib/sets');
+  const { listImages, KEPT_DIR, ORIGINALS_DIR } = require('../lib/fsutil');
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'w2x-sets-'));
+  const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'w2x-bin-'));
+  const trashed = [];
+  const trash = async (p) => { trashed.push(p); fs.renameSync(p, path.join(bin, path.basename(p))); };
+  const mk = (n) => { const p = path.join(tmp, n); fs.writeFileSync(p, n); return p; };
+  const store = new Store(path.join(tmp, 'variants.json'));
+  const src = mk('girl.png');
+  store.addMany([
+    { source: src, output: mk('girl__artwork_medium_2x.png'), tag: 'artwork_medium_2x', settings: {} },
+    { source: src, output: mk('girl__artwork_high_2x.png'), tag: 'artwork_high_2x', settings: {} },
+    { source: src, output: path.join(tmp, 'girl__gone.png'), tag: 'gone', settings: {} },
+  ]);
+  const best = store.forSource(src).find((v) => v.tag === 'artwork_high_2x');
+  (async () => {
+    const r = await S.keepBest({ store, source: src, variantId: best.id, keepOriginal: true, trash });
+    assert.strictEqual(r.kept, path.join(tmp, KEPT_DIR, 'girl__artwork_high_2x.png'));
+    assert.strictEqual(r.original, path.join(tmp, ORIGINALS_DIR, 'girl.png'));
+    assert.deepStrictEqual(r.trashed, [path.join(tmp, 'girl__artwork_medium_2x.png')]);
+    assert.ok(fs.existsSync(r.kept) && fs.existsSync(r.original) && !fs.existsSync(src));
+    assert.ok(store.resolvedSet().has(src) && !store.forSource(src).length);
+    assert.deepStrictEqual(listImages(tmp, true), [], 'kept folders are not scanned');
+
+    // Keep only: the original goes to the bin as well; a name clash in Upscaled Images gets " (2)"
+    const src2 = mk('girl2.png');
+    fs.writeFileSync(path.join(tmp, KEPT_DIR, 'girl2__a.png'), 'old');
+    store.addMany([{ source: src2, output: mk('girl2__a.png'), tag: 'a', settings: {} }]);
+    const r2 = await S.keepBest({ store, source: src2, variantId: store.forSource(src2)[0].id, keepOriginal: false, trash });
+    assert.strictEqual(r2.kept, path.join(tmp, KEPT_DIR, 'girl2__a (2).png'));
+    assert.ok(r2.trashed.includes(src2) && r2.original === null);
+
+    // Delete: a set stays until its last file is gone
+    const src3 = mk('cat.png');
+    store.addMany([{ source: src3, output: mk('cat__a.png'), tag: 'a', settings: {} }]);
+    const d1 = await S.deleteFile({ store, source: src3, which: 'orig', trash });
+    assert.strictEqual(d1.resolved, false);
+    const d2 = await S.deleteFile({ store, source: src3, which: store.forSource(src3)[0].id, trash });
+    assert.strictEqual(d2.resolved, true);
+    assert.ok(store.resolvedSet().has(src3));
+    await assert.rejects(S.keepBest({ store, source: src3, variantId: 'nope', keepOriginal: true, trash }));
+    fs.rmSync(tmp, { recursive: true, force: true });
+    fs.rmSync(bin, { recursive: true, force: true });
+    console.log('Set actions passed.');
+  })().catch((e) => { console.error(e); process.exit(1); });
+}
+
 console.log('All tests passed.');

@@ -20,10 +20,10 @@ The same settings as waifu2x.net (style, noise reduction, upscaling) run locally
 
 ## Operating Context
 
-- The owner points the app at a folder (optionally with its subfolders), ticks images, and runs a batch.
+- The owner adds one or more folders (optionally with their subfolders), filters by folder, ticks images, gives some of them their own settings, and runs a batch. More runs queue behind it.
 - Results are saved next to each source as `name__<settings>.png`. Nothing is ever overwritten.
 - Images already done with the same settings are skipped.
-- After a batch, the owner reviews each image in Compare and re-runs some with other settings.
+- After a batch, the owner reviews each image (Gallery, Compare) and re-runs some with other settings. Then they keep the best version: it moves to `Upscaled Images` (the original optionally to `Upscaled Images - Originals`), the rest go to the Recycle Bin, and the image leaves the list for good.
 - The engine (Python 3.12, PyTorch with CUDA 13.2, nunif, models) is installed once from inside the app, into the app data folder. The app data folder can be moved to an external drive.
 
 ## Capabilities and Constraints
@@ -31,6 +31,7 @@ The same settings as waifu2x.net (style, noise reduction, upscaling) run locally
 - **Settings:** Style (Artwork, Artwork/Scans, Photo), Noise (None, Low, Medium, High, Highest, mapped exactly as on waifu2x.net), Upscale (None, 2x, 4x), Tile size, and TTA.
 - **Engine install:** follows nunif's own Windows installer, and ends with a test upscale before it reports ready.
 - **Progress:** every download and task shows a bar, a percentage, the time elapsed and the time left (the owner's standing rule).
+- **GPU:** the laptop has an AMD integrated GPU and an RTX 3060 Laptop GPU; only the NVIDIA one does CUDA. The app matches PyTorch's CUDA build to the driver, diagnoses why the GPU can't be used, and shows live GPU load while upscaling.
 - **Appearance:** fully customisable (themes, colours, gradients, fonts, corners, density), with themes shareable between the owner's apps as theme files.
 - **Storage:** app data, settings, themes and fonts live outside the program folder, so updates keep them.
 - **Never in the app:** 1.6x upscaling (not in nunif's CLI), and video upscaling (images only).

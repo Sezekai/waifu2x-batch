@@ -24,35 +24,53 @@
   <div class="main">
     <!-- ================= BATCH ================= -->
     <section class="screen on" id="s-batch">
-      <div class="head"><h2>Batch upscale</h2><p>Upscale every image in a folder with waifu2x. Results are saved next to each image; nothing is overwritten.</p></div>
+      <div class="head"><h2>Batch upscale</h2><p>Upscale every image in your folders with waifu2x. Results are saved next to each image; nothing is overwritten.</p></div>
       <div class="banner" id="b-banner" hidden></div>
+      <div class="banner" id="b-gpu" hidden></div>
       <div class="panel tools">
         <div class="trow">
-          <span class="lab">Folder</span>
-          <button class="field pathfield" id="b-folder" title="Choose a folder"><span class="ph">Choose a folder of images</span></button>
-          <button class="btn" id="b-browse"><span data-ic="folder"></span>Browse</button>
+          <span class="lab">Folders</span>
+          <button class="field pathfield" id="b-fsum" title="Add a folder"><span class="ph">Add a folder of images</span></button>
+          <button class="btn" id="b-add"><span data-ic="plus"></span>Add folder…</button>
           <label class="cb"><input type="checkbox" id="b-recursive">Include subfolders</label>
           <div class="divider"></div>
-          <button class="btn danger-ghost" id="b-stop" hidden><span data-ic="stop"></span>Stop</button>
+          <button class="btn danger-ghost" id="b-stop" hidden title="Stop the running image and empty the queue"><span data-ic="stop"></span>Stop</button>
           <button class="btn primary" id="b-run"><span data-ic="upscale"></span><span id="b-run-t">Upscale</span></button>
         </div>
-        <div class="trow"><span class="lab">Settings</span><span class="setting-host" id="b-settings"></span><span class="faint grow-r" id="b-settings-note">Same options as waifu2x.net · PNG output</span></div>
+        <div class="trow"><span class="lab">Settings</span><span class="setting-host" id="b-settings"></span><span class="faint grow-r" id="b-settings-note">Images without their own settings use these · PNG output</span></div>
       </div>
-      <div class="panel results">
-        <div class="rhead">
-          <div class="sum" id="b-sum"></div>
-          <span class="faint small" id="b-hint">Shift-click to tick a range</span>
-          <div class="seg" id="b-filter" role="tablist" aria-label="Filter"></div>
-          <button class="btn" id="b-all">Select all</button>
-          <button class="btn" id="b-none">Select none</button>
+      <div class="bbody">
+        <div class="panel ftree" id="b-treep">
+          <div class="top"><b>Folders</b><span class="faint small">Click to filter</span></div>
+          <div class="tree" id="b-tree" role="tree" aria-label="Folders"></div>
         </div>
-        <div class="list" id="b-list">
-          <table>
-            <colgroup><col style="width:34px"><col><col style="width:110px"><col style="width:126px"><col style="width:82px"><col style="width:150px"></colgroup>
-            <thead><tr><th><input type="checkbox" id="b-headchk" aria-label="Tick all shown"></th><th>File</th><th>Size</th><th>Output</th><th>Versions</th><th>Status</th></tr></thead>
-            <tbody id="b-rows"></tbody>
-          </table>
-          <div class="empty" id="b-empty"></div>
+        <div class="panel results">
+          <div class="rhead">
+            <div class="sum" id="b-sum"></div>
+            <div class="seg" id="b-filter" role="tablist" aria-label="Filter"></div>
+            <div class="seg" id="b-views" aria-label="View"><button data-view="list" title="List"><span data-ic="list"></span>List</button><button data-view="grid" title="Grid"><span data-ic="grid"></span>Grid</button><button data-view="gallery" title="Gallery (double-click an image)"><span data-ic="image"></span>Gallery</button></div>
+            <span class="sel" title="Sort by"><select id="b-sort" aria-label="Sort by"></select><span data-ic="chev"></span></span>
+            <button class="btn icon" id="b-sortdir" title="Reverse the order" aria-label="Reverse the order"></button>
+            <span class="slider sizer" id="b-sizer" title="Thumbnail size (Ctrl + mouse wheel)"><span data-ic="imgsm"></span><input type="range" id="b-size" aria-label="Thumbnail size"><span data-ic="image"></span></span>
+            <button class="btn icon" id="b-opts" title="View options" aria-label="View options" aria-haspopup="true"><span data-ic="sliders"></span></button>
+          </div>
+          <div class="selbar" id="b-selbar" hidden></div>
+          <div class="views">
+            <div class="list" id="b-list">
+              <table>
+                <colgroup><col style="width:34px"><col><col class="c-size"><col class="c-out"><col class="c-set"><col class="c-ver"><col class="c-stat"></colgroup>
+                <thead><tr><th><input type="checkbox" id="b-headchk" aria-label="Tick all shown"></th><th data-sort="name">File</th><th data-sort="size">Size</th><th data-sort="out">Output</th><th data-sort="settings">Settings</th><th data-sort="versions">Versions</th><th data-sort="status">Status</th></tr></thead>
+                <tbody id="b-rows"></tbody>
+              </table>
+            </div>
+            <div class="grid" id="b-grid" hidden></div>
+            <div class="gal" id="b-gal" hidden>
+              <div class="gstage" id="g-stage" tabindex="0" aria-label="Image"><div class="gworld" id="g-world"><img id="g-img" alt="" draggable="false"></div></div>
+              <aside class="gside" id="g-side"></aside>
+            </div>
+            <div class="empty" id="b-empty"></div>
+          </div>
+          <div class="pop" id="b-pop" hidden></div>
         </div>
       </div>
     </section>
@@ -61,7 +79,7 @@
     <section class="screen" id="s-compare">
       <div class="panel imgs">
         <div class="top">
-          <button class="folder" id="c-folder" title="Choose a folder"><span data-ic="folder"></span><b id="c-folder-name">No folder</b><span id="c-folder-path"></span></button>
+          <button class="folder" id="c-folder" title="Folders are added and filtered on the Batch screen"><span data-ic="folder"></span><b id="c-folder-name">No folder</b><span id="c-folder-path"></span></button>
           <div class="pills" id="c-filter"></div>
         </div>
         <div class="ilist" id="c-list"></div>
@@ -71,7 +89,7 @@
         <div class="banner" id="c-banner" hidden></div>
         <div class="panel tools">
           <div class="trow">
-            <div class="seg" id="c-modes"><button data-m="hold" title="Hold to compare (H)"><span data-ic="hold"></span>Hold</button><button data-m="split" title="Split slider (S)"><span data-ic="split"></span>Split</button><button data-m="side" title="Side by side (C)"><span data-ic="side"></span>Side by side</button></div>
+            <div class="seg" id="c-modes"><button data-m="hold" title="Hold to compare (Q)"><span data-ic="hold"></span>Hold</button><button data-m="split" title="Split slider (W)"><span data-ic="split"></span>Split</button><button data-m="side" title="Side by side (E)"><span data-ic="side"></span>Side by side</button><button data-m="seq" title="One at a time, ← → to step through (R)"><span data-ic="seq"></span>Sequence</button></div>
             <div class="divider"></div>
             <button class="btn icon" id="z-out" title="Zoom out (-)" aria-label="Zoom out"><span data-ic="zout"></span></button>
             <span class="zoomlab" id="z-lab">–</span>
@@ -80,9 +98,10 @@
             <button class="btn" id="z-1" title="Original pixels at 100% (1)">1:1</button>
             <span class="grow-r"></span>
             <button class="btn ghost" id="c-show" title="Show the shown version in its folder"><span data-ic="folderopen"></span>Show in folder</button>
+            <button class="btn ghost icon" id="c-full" title="Hide everything but the images (H)" aria-label="Hide everything but the images"><span data-ic="expand"></span></button>
           </div>
           <div class="trow"><span class="lab">Run again</span><span class="setting-host" id="c-settings"></span><span class="grow-r"></span>
-            <button class="btn primary" id="c-rerun" title="Adds a new version of this image; nothing is overwritten"><span data-ic="again"></span>Upscale again</button></div>
+            <button class="btn primary" id="c-rerun" title="Adds a new version of this image; nothing is overwritten. If something is running, it joins the queue."><span data-ic="again"></span>Upscale again</button></div>
         </div>
         <div class="stage" id="stage" tabindex="0" aria-label="Image comparison"><div class="panes" id="panes"></div><div class="empty" id="c-empty"></div></div>
         <div class="panel strip" id="c-vers"></div>
@@ -109,6 +128,21 @@
               <button class="btn" id="e-check"><span data-ic="check"></span>Check engine</button>
               <span class="grow-r"></span>
               <button class="btn ghost" id="e-openlog"><span data-ic="log"></span>Open install log</button>
+            </div>
+          </div>
+          <div class="panel card" id="g-card">
+            <div class="cardhead"><h3>GPU</h3><span class="tag" id="g-tag"></span><span class="grow-r faint small" id="g-when"></span></div>
+            <p class="lead" id="g-lead"></p>
+            <div class="findings" id="g-findings"></div>
+            <div class="trow">
+              <span class="inl">Upscale on</span><span class="sel"><select id="g-choice" aria-label="Upscale on"></select><span data-ic="chev"></span></span>
+            </div>
+            <div class="trow">
+              <button class="btn ghost" id="g-copy" hidden><span data-ic="copy"></span>Copy report</button>
+              <button class="btn ghost" id="g-open" hidden><span data-ic="log"></span>Open report</button>
+              <span class="grow-r"></span>
+              <button class="btn" id="g-diag"><span data-ic="search"></span>Diagnose GPU</button>
+              <button class="btn primary" id="g-repair" hidden><span data-ic="wrench"></span>Repair GPU support</button>
             </div>
           </div>
           <div class="panel card">
@@ -158,6 +192,7 @@
     </div>
     <div class="status" id="status">
       <div class="job"><b id="s-job">Ready</b><span class="name" id="s-name"></span></div>
+      <span class="gpuchip" id="s-gpu" hidden></span>
       <div class="track"><i id="s-bar"></i></div><span class="pct" id="s-pct">–</span>
       <span class="time" id="s-time">Nothing running</span>
       <button class="btn" id="s-review" hidden><span data-ic="compare"></span>Review</button>
@@ -169,6 +204,7 @@
 
 <div class="overlay" id="overlay" hidden><div class="dialog" id="dialog" role="dialog" aria-modal="true"></div></div>
 <div class="toasts" id="toasts" aria-live="polite"></div>
+<div class="hoverprev" id="hoverprev" hidden><img alt=""></div>
 
 <script src="fonts/fonts.js"></script>
 <script src="../lib/presets.js"></script>

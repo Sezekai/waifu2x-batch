@@ -99,7 +99,7 @@ Never use the accent as decoration. State colours carry meaning only: `ok` for d
 - **Title bar (32 px), no menu bar:**
   - There's no File / Edit / View menu. Anything an app needs from one lives in the app itself: a rail tool, a button or a shortcut listed under **Keys**.
   - The strip is the `ground` colour with a 1 px `line` underneath. It shows the app name in `text` at 600 weight, then `·` and the current screen in `faint`, both at 12 px. The whole strip drags the window.
-  - The system's minimise, maximise and close buttons sit on the right and follow the theme: background `ground`, symbols `sec`. In Electron that's `titleBarStyle: 'hidden'` plus `titleBarOverlay`, updated with `setTitleBarOverlay` whenever the theme changes. In WPF use `WindowChrome`; in PySide6 use a frameless window with your own buttons.
+  - The system's minimise, maximise and close buttons sit on the right and follow the theme: background `ground`, symbols `sec`. In Electron that's `titleBarStyle: 'hidden'` plus `titleBarOverlay`, updated with `setTitleBarOverlay` whenever the theme changes. Make the overlay 1 px shorter than the strip (31 px), so the line underneath runs the full width, under the buttons too. In WPF use `WindowChrome`; in PySide6 use a frameless window with your own buttons.
   - F11 toggles full screen and hides the strip. Ctrl+Shift+I opens developer tools (for bug reports).
 - **Rail (64 px):**
   - The logo tile is first, in the accent.
@@ -114,6 +114,7 @@ Never use the accent as decoration. State colours carry meaning only: `ok` for d
   - Rows wrap on narrow windows; they never scroll sideways.
 - **Work area:** fills the remaining height. A summary line with the filters and list buttons sits on top.
 - **Side panel:** when a screen needs a list and a detail view (Compare, Appearance), the list is a 292 px panel on the left.
+- **Folder tree (230 px):** when an app works on several folders, they're added with **Add folder…** and listed in a tree on the left of the work area: "All folders" first, then each folder with its subfolders and image counts. Clicking a folder filters the work area to that folder and everything under it. Ticks are kept when the filter changes. × on a folder takes it off the list; nothing on disk is touched.
 - **Status bar (36 px):** on every screen (see Progress).
 - **Log drawer (220 px):** slides up over the bottom of the screen. It has Copy, Clear and Close, and opens by itself on an error.
 - **No sideways scrolling, anywhere.** Tables use fixed column widths, and the first text column takes the spare width and truncates with "…".
@@ -130,6 +131,8 @@ Every download and every task shows a progress bar, a percentage, the time elaps
 - **Stall warning:** after 20 s with no new progress, the status line turns `warn` and says how long it has been, and that the log shows what is running.
 - **Cap at 99%:** the percentage stops at 99% until the task has really finished.
 - **Detail lists:** where a task has steps or items, each one shows its own state: Done ✓, current (accent, sliding mini bar), Queued, Failed (danger). The batch table does this per file, and the Engine screen does it per install step.
+- **Queue, not "busy":** starting work while something runs adds it to a queue; buttons never go disabled just because a task is running (they say "Add … to the queue"). The status bar shows one bar for everything queued ("Upscaling 12 of 40 · … · 8 more queued"). Stop empties the queue and stops the current item.
+- **Live hardware:** while a GPU job runs, a chip in the status bar shows the GPU, its load and memory ("RTX 3060 Laptop GPU · 87% · 3.1 / 6.0 GB"), updated every 2 s. When work runs on the CPU instead, the chip says so in `warn`.
 - **Finishing:** the status bar says what happened ("Finished: 6 made, 0 failed · took 2:04") and offers the next step (Review). It never silently clears.
 
 ## Components
@@ -145,12 +148,16 @@ Every download and every task shows a progress bar, a percentage, the time elaps
 - **Segmented control:** a `field`-coloured track with 2 px padding. The chosen segment is `raised2`. Counts sit in `faint` after the label ("Not done 8").
 - **Pills:** 24 px, round, for filters in side panels.
 - **Tags:** 20 px round labels for status: `ok`, `warn`, and an accent tint.
-- **Tables:**
-  - A sticky header in `panel` at 12 px / 600 / `sec`, with a checkbox column first.
-  - Rows `--rh` tall with an 18 px thumbnail.
-  - Ticked rows get a faint accent tint; the row being worked on gets the selection tint.
-  - Shift-click ticks a range, and double-click opens the item.
+- **Views of a collection: List, Grid, Gallery.** A segmented control in the work area's summary line switches between them, with a Sort drop-down, a direction button and a size slider beside it.
+  - **List:** a table. A sticky header in `panel` at 12 px / 600 / `sec`, with a checkbox column first. Every column header sorts (click again to reverse; a small accent triangle marks it). Thumbnails are 18–160 px, set with the slider or Ctrl + mouse wheel; rows grow with them. An option shows a larger preview when hovering a thumbnail or file name.
+  - **Grid:** cards (thumbnail on `stage`, contained, never cropped; then name, sizes, settings, status). 110–480 px wide, same slider and Ctrl + wheel. The tick box sits on the thumbnail's corner.
+  - **Gallery:** one image, nothing drawn over it, and a 300 px side panel on the right with everything else: name and position ("5 of 17"), the tick, file details, settings, actions, zoom and previous / next, then the keys. Zoom keeps the centre of the view still. ← → / PgUp PgDn browse, Home End jump, ↑ ↓ and the wheel zoom, X ticks, F hides the rest of the app (full screen with just the image and the panel). Double-click in List or Grid opens the Gallery.
+- **Selecting and ticking:** a click selects an item (accent outline; its details and settings show). Ctrl+click or its tick box ticks it for the action; Shift with either ticks the range from the last ticked item. An option ("When you click an image") switches to click-to-tick. Ctrl+A ticks everything shown. Ticked rows get a faint accent tint; the row being worked on gets the selection tint.
+- **Settings per item:** a selection bar above the list (accent-tinted, 1 line) edits the settings of the ticked items, or the selected one when nothing is ticked. A setting that differs between them shows "Mixed". Items with their own settings show them in the accent in the Settings column; **Use defaults** clears them. The toolbar's settings are the defaults for everything else.
 - **Cards** (versions, themes): `raised`, with a 1 px `line` border that becomes the accent when chosen. Small actions appear on hover.
+- **Deleting and keeping:** nothing is ever deleted permanently. Delete sends to the Recycle Bin, after a dialog that names the file and says what happens to the rest. "Keep best" moves the chosen file to an `Upscaled Images` folder (and the original to `Upscaled Images - Originals`, if kept) beside the source, sends the rest to the Recycle Bin, and takes the item off the list for good; those folders are never scanned again.
+- **Full views:** F (and F11) is full screen everywhere. Where an image is the point, one key hides everything but it: F in a gallery, H in a comparison. Esc, or the same key, brings the panels back.
+- **Diagnosis results:** a list of findings, each with an icon in `ok` / `warn` / `danger` / accent (info), a bold one-line title, the evidence in `sec`, and a **Fix:** line. One button applies the fix when the app can do it (Repair …); a report can be copied or opened to send to someone.
 - **Banners:** one line with an icon, a bold lead, a sentence and one button. Tinted from the accent (6% fill, 26% border), never brown or yellow. Use them for "needs setting up first" states.
 - **Empty states:** a 28 px faint icon, one sentence on what goes here, and the button that fills it.
 - **Dialogs:** in-app only (no Windows pop-ups). A title, a sentence, an optional input, and actions on the right. Enter confirms, Esc cancels.
